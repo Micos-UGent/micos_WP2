@@ -89,8 +89,8 @@ df_counts <- read.csv("raw_data/run4_pool1_7_counttable.csv", sep = ";", header 
 
 As this is a large object, the environment has also been saved and can be reloaded to work from. 
 ```{r}
-#save.image(file = "metadata_counts_micos.Rdata")
-# load("metadata_counts_micos.Rdata")
+save.image(file = "metadata_counts_micos.Rdata")
+load("metadata_counts_micos.Rdata")
 ```
 
 + Specs:
@@ -340,6 +340,11 @@ names(low_depth_samples) <- paste0("below_", thresholds)
 
 # View
 low_depth_samples$below_1000
+low_depth_samples$below_5000
+low_depth_samples$below_10000
+length(low_depth_samples$below_1000)
+length(low_depth_samples$below_5000)
+length(low_depth_samples$below_10000)
 
 ```
 
@@ -366,6 +371,17 @@ psB_filtered5000 <- prune_samples(!(sample_names(psB_filtered5000) %in% low_dept
 
 ```
 
+```{r}
+# Remove samples with library depth below 1000
+keep_samples <- !(sample_names(psB) %in% low_depth_samples$below_10000)
+
+# Remove samples with library depth below 1000
+psB_filtered10000 <- prune_samples(keep_samples, psB)
+# Remove samples with library depth below 1000
+psB_filtered10000 <- prune_samples(!(sample_names(psB_filtered10000) %in% low_depth_samples$below_5000), psB_filtered10000)
+
+```
+
 # DIVERSITY
 
 ## Without filtering
@@ -385,11 +401,11 @@ df_div <- data.frame(
 ## Only on part Preincubation
 ggplot(df_div, 
        aes(x = Pool, y = Shannon)) +
-   geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.colour = "black", outlier.alpha = 1) + 
+   geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.colour = "red", outlier.alpha = 1) + 
    geom_jitter(width = 0.15) +
-
+  ylim(c(-1,10)) +
   # Set lay out of the graph
-  ylim(c(0,10)) +
+ 
   ggtitle("Bacterial shannon diversity without filtering") 
 ```
 
@@ -410,7 +426,7 @@ df_div_filtered1000 <- data.frame(
 ## Only on part Preincubation
 ggplot(df_div_filtered1000, 
        aes(x = Pool, y = Shannon)) +
-   geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.colour = "black", outlier.alpha = 1) + 
+   geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.colour = "red", outlier.alpha = 1) + 
    geom_jitter(width = 0.15) +
 
   # Set lay out of the graph
@@ -435,7 +451,7 @@ df_div_filtered5000 <- data.frame(
 ## Only on part Preincubation
 ggplot(df_div_filtered5000, 
        aes(x = Pool, y = Shannon)) +
-   geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.colour = "black", outlier.alpha = 1) + 
+   geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.colour = "red", outlier.alpha = 1) + 
    geom_jitter(width = 0.15) +
 
   # Set lay out of the graph
@@ -474,6 +490,7 @@ From this table, only sample MC24_204 has a really low libary depth (6873). The 
 Conclusion:
 
 - At the moment the samples will be included, but might be discarded if also other parameters look wonky
+
 
 ### Diversity technical replicates
 
@@ -550,6 +567,32 @@ ggplot(df_highVar,
    )
 ```
 
+#### Removal below 10.000
+```{r}
+# Calculate diversity, richness and eveness
+## PacBio
+df_div_filtered10000 <- data.frame(
+  Richness = specnumber(otu_table(t(psB_filtered10000))),
+  Shannon = diversity(otu_table(t(psB_filtered10000)), index = "shannon")) %>% 
+  cbind( sample_data(psB_filtered10000)) %>%
+  mutate(Evenness = Shannon / log(Richness))
+
+```
+
+
+```{r}
+# Create a boxplot for the diversity
+## Only on part Preincubation
+ggplot(df_div_filtered10000, 
+       aes(x = Pool, y = Shannon)) +
+   geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.colour = "red", outlier.alpha = 1) + 
+   geom_jitter(width = 0.15) +
+
+  # Set lay out of the graph
+  ylim(c(0,10)) +
+  ggtitle("Bacterial shannon diversity with removal < 10,000 reads") 
+```
+
 # UMAP as alternative for pcoa???
 
 
@@ -606,6 +649,8 @@ p$layers <- p$layers[-1]
 
 p
 ```
+
+
 #### Soil texture
 ```{r}
 
@@ -874,12 +919,15 @@ p
 
 ggsave("output/pcoa150_soiltexture.png", p)
 ```
-## PcoA
-Deze stap duur laaang
+
+
+## PcoA all
+
+
 ```{r eval = FALSE}
 
 # Calculate ordination
-pcoa.ord <- ordinate(psB_filtered5000_rel, method = "PCoA", distance = "bray")
+pcoa.ord_all <- ordinate(psB_filtered5000_rel, method = "PCoA", distance = "bray")
 
 # Plot ordination
 p <- plot_ordination(psB_filtered5000_rel, 
@@ -891,7 +939,7 @@ p <- plot_ordination(psB_filtered5000_rel,
   stat_ellipse(aes(group = Field), alpha = 0.4) +
   
   # Set theme
-  theme_publish +
+  
   theme(axis.text = element_text(size = 10),
          axis.title = element_text(size = 12)) 
   
@@ -902,6 +950,236 @@ p
 # Save plot
 # ggsave("Output/Bacteria/Bacteria_Preincubation_PcoA_ASV.png", width = 4.5, height = 3)
 ```
+
+#### Technical replicates set 1
+```{r}
+# Selecta  few random fields
+my_colors <- c(
+  "MC24_015" = "#F8766D",
+  "MC24_045" = "#7CAE00",
+  "MC24_052" = "#00BFC4",
+  "MC24_093" = "#C77CFF",
+  "MC24_094" = "#00A9FF",
+  "MC24_150" = "#FF61CC"
+)
+
+
+```
+
+```{r}
+
+# Fields you want to emphasize (the ones you gave colors for)
+sel_fields <- names(my_colors)
+
+# Plot
+p <- plot_ordination(psB_filtered5000_rel, pcoa.ord, color = "Field") +
+  # Map color to Field and size to an indicator of selected fields
+  geom_point(aes(color = Field, size = Field %in% sel_fields), alpha = 0.9) +
+  theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  ) +
+  
+  # Colored fields get your palette; others become grey
+  scale_colour_manual(values = my_colors, na.value = "grey60") +
+  # Make selected fields larger, others smaller; hide size legend
+  scale_size_manual(values = c(`FALSE` = 1.5, `TRUE` = 5), guide = "none")
+
+# Remove the default point layer added by plot_ordination
+p$layers <- p$layers[-1]
+
+p
+```
+
+#### sets
+
+```{r plot technical replicates}
+plot_technical_rep <- function(my_colors) {
+# Fields you want to emphasize (the ones you gave colors for)
+sel_fields <- names(my_colors)
+
+# Plot
+p <- plot_ordination(psB_filtered5000_rel, pcoa.ord, color = "Field") +
+  # Map color to Field and size to an indicator of selected fields
+  geom_point(aes(color = Field, size = Field %in% sel_fields), alpha = 0.9) +
+  theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  ) +
+  
+
+
+ geom_text_repel(
+  data = subset(p$data, Field %in% sel_fields),             # only selected
+  aes(label = paste0(DNAextraction, "|", gsub("POOL", "", Pool))),
+  size = 5, fontface = 'bold') + 
+
+
+  # Colored fields get your palette; others become grey
+  scale_colour_manual(values = my_colors, na.value = "grey60") +
+  # Make selected fields larger, others smaller; hide size legend
+  scale_size_manual(values = c(`FALSE` = 1.5, `TRUE` = 5), guide = "none")
+
+# Remove the default point layer added by plot_ordination
+p$layers <- p$layers[-1]
+
+p }
+```
+
+
+```{r}
+my_colors <- c(
+  "MC24_015" = "#F8766D",
+  "MC24_045" = "#7CAE00",
+  "MC24_052" = "#00BFC4",
+  "MC24_093" = "#C77CFF",
+  "MC24_094" = "#00A9FF"
+)
+
+
+my_colors_set1 <- c(
+  "MC24_018" = "#F8766D",
+  "MC24_033" = "#7CAE00",
+  "MC24_067" = "#00BFC4",
+  "MC24_102" = "#C77CFF",
+  "MC24_128" = "#00A9FF",
+  "MC24_221" = "#FF61CC"
+)
+
+
+my_colors_set2 <- c(
+  "MC24_009" = "#F8766D",
+  "MC24_041" = "#7CAE00",
+  "MC24_076" = "#00BFC4",
+  "MC24_119" = "#C77CFF",
+  "MC24_144" = "#00A9FF",
+  "MC24_238" = "#FF61CC")
+
+  
+
+my_colors_set3 <- c(
+  "MC24_012" = "#F8766D",
+  "MC24_058" = "#7CAE00",
+  "MC24_085" = "#00BFC4",
+  "MC24_111" = "#C77CFF",
+  "MC24_173" = "#00A9FF",
+  "MC24_199" = "#FF61CC"
+)
+
+
+my_colors_set4 <- c(
+  "MC24_024" = "#F8766D",
+  "MC24_062" = "#7CAE00",
+  "MC24_097" = "#00BFC4",
+  "MC24_135" = "#C77CFF",
+  "MC24_180" = "#00A9FF",
+  "MC24_241" = "#FF61CC"
+)
+
+
+
+my_colors_set5 <- c(
+  "MC24_005" = "#F8766D",
+  "MC24_049" = "#7CAE00",
+  "MC24_088" = "#00BFC4",
+  "MC24_123" = "#C77CFF",
+  "MC24_166" = "#00A9FF",
+  "MC24_210" = "#FF61CC")
+
+```
+
+
+
+
+```{r}
+plot_technical_rep(my_colors)
+plot_technical_rep(my_colors_set1)
+plot_technical_rep(my_colors_set2)
+plot_technical_rep(my_colors_set3)
+plot_technical_rep(my_colors_set4)
+plot_technical_rep(my_colors_set5)
+
+```
+
+
+
+
+#### Ellipses? 
+
+
+```{r}
+
+# Extract the data created by plot_ordination
+df <- p$data  # same data used in the plot
+
+p + 
+  stat_ellipse(
+    data = subset(df, Field %in% sel_fields),
+    aes(color = Field),
+    type = "t",       # robust ellipse; use "norm" or "euclid" if preferred
+    level = 0.95,
+    linewidth = 0.8
+  )
+
+```
+
+#### Primers
+```{r}
+# Plot
+p <- plot_ordination(psB_filtered5000_rel, pcoa.ord, color = "primers") +
+  geom_point(size = 2) +
+  # stat_ellipse(aes(group = Field), alpha = 0.4) +
+   theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+# Remove the default point layer
+p$layers <- p$layers[-1]
+
+p
+
+ggsave("output/pcoaall_primers.png", p)
+```
+
+#### Pool
+```{r}
+# Plot
+p <- plot_ordination(psB_filtered5000_rel, pcoa.ord, color = "Soil") +
+  geom_point(size = 2) +
+  # stat_ellipse(aes(group = Field), alpha = 0.4) +
+   theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+# Remove the default point layer
+p$layers <- p$layers[-1]
+
+p
+
+ggsave("output/pcoaall_soiltexture.png", p)
+```
+
+#### Soil texture
+```{r}
+# Plot
+p <- plot_ordination(psB_filtered5000_rel, pcoa.ord, color = "Soil") +
+  geom_point(size = 2) +
+  # stat_ellipse(aes(group = Field), alpha = 0.4) +
+   theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+# Remove the default point layer
+p$layers <- p$layers[-1]
+
+p
+
+ggsave("output/pcoaall_soiltexture.png", p)
+```
+
 
 
 ### Visualize the distances
