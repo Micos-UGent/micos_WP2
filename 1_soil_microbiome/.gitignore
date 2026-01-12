@@ -1,0 +1,16 @@
+.Rproj.user
+.Rhistory
+.RData
+.httr-oauth
+.DS_Store
+.quarto
+output/
+raw_data/
+*/output/
+*/raw_data_
+*.tmp
+*.log
+*.png
+*.rds
+*.csv
+
