@@ -1,0 +1,5365 @@
+---
+title: "Macroplastic_datavisualisation_"
+author: "Benthe Van Buyten"
+date: "2025-02-10"
+output: 
+  html_document:
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+  word_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+subtitle: MiCoS
+---
+
+# INTRODUCTION
+
+Add some information on this macroplastics. 
+This script is made to analyse the data of the counts of the macromaterials of the 240 fields sampled across the Benelux. 
+Variables: 
+
+- Counts per field of every litter category
+- Total_macromaterial per hectare
+- Total_plastic per hectare
+
+
+
+```{r}
+# Load packages
+library(ggplot2)
+library(readr)
+library(dplyr)
+library(stringr)
+library(paletteer)
+library(tidyr)
+library(reshape2)
+library(fastDummies)
+library(patchwork)
+library(MASS)
+library(car)
+library(emmeans)
+library(multcomp)
+library(multcompView)
+```
+
+# DATA SETUP
+
+## Load data
+```{r}
+# Locate data
+path <- ("./")
+
+# Create full pathways to necessary data files
+path_MAP <- file.path(path, "MaP_Hectare_woOutliers.csv")
+
+## Check if paths exists
+file.exists(path_MAP)
+
+# Load data
+MAP <- read.csv(path_MAP, sep = ";")
+head(MAP)
+```
+
+### Dataset mean of categories
+
+
+```{r}
+# Locate data
+path <- ("./")
+
+# Create full pathways to necessary data files
+path_Mean <- file.path(path, "Mean_staafdiagrammen_woOutliers.csv")
+
+## Check if paths exists
+file.exists(path_Mean)
+
+# Load data
+MAP_mean_categories <- read.csv(path_Mean, sep = ";")
+head(MAP_mean_categories)
+```
+
+
+**How many fields do not have any macroplastics**
+
+On 8 fields no litter was found due to circumstances:
+
+- MC24_023: Field was ploughed, therefore no litter could be found according to the sampling book.
+- MC24_034: According to the sampling book, no litter was found due to snow and grass.
+- MC24_037: Empty bag, Sampling book stated: A lot of snow on the field, not possible to find MaP
+- MC24_127: Empty bag, according to sampling book: no MaP found due to high grass +- 30 cm
+- MC24_216: Excluded for forgetting to note where the MaP were taken, no coordinates
+- MC24_222: Empty bag due to grass
+- MC24_223: Empty bag, no MaP found due to rapeseed
+- MC24_235: Empty bag, no MaP found due to rapeseed
+
+The fields above are excluded from the dataset.
+
+On 7 fields no litter was found:
+
+- MC24_029: Empty bag, according to sampling book: only shells were found
+- MC24_053: Empty bag, according to sampling book: no MaP contamination sources found, nothing stated about the MaP
+- MC24_088: Empty bag, according to sampling book: no MaP contamination sources found, nothing stated about the MaP
+- MC24_129: Empty bag, according to sampling book: no MaP found
+- MC24_190: Empty bag, according to sampling book: Nothing stated about MaP
+- MC24_191: According to the sampling book, Strobalen met folie rond en op de weg, plastic restanten maar nu niets op het veld te zien.
+- MC24_217: Empty bag, according to sampling book: Nothing stated about MaP
+
+The fields above are included in the dataset
+
+On 7 fields, no plastic was found but other macromaterials were found:
+
+- MC24_005
+- MC24_014
+- MC24_063
+- MC24_114
+- MC24_162
+- MC24_175
+- MC24_219
+
+
+Three fields are see as outliers as the sampled surface was smaller compared to other fields :
+
+- MC24_018 (207 000 plastics/Ha) 4 m^2
+- MC24_073 (108 750 plastic/Ha) 16 m^2
+- MC24_012 (44 000 plastics/Ha) 10 m^2
+
+### Log Total Macromaterials and total macroplastics
+Log10 nemen van macromaterials and macroplastics
+If the value of macromaterials/macroplastics equals zero, we will do +1 because log10(1) = 0
+```{r}
+# Data manipulatie
+MAP_all <- MAP %>%
+  
+  # Data manipulation
+  mutate(log_Total_litter = log10(if_else(Total_macromaterials == 0, Total_macromaterials + 1, Total_macromaterials)), #Log10 of total_macromaterials, but if total_macromaterials is zero add +1 because log10(1) = 0.
+         log_Total_plastic = log10(if_else(Total_plastics == 0, Total_plastics + 1, Total_plastics)), #Log10 of total_plastics, but if total_plastics is zero add +1 because log10(1) = 0.
+         log_Total_metal = log10(if_else(Total_metal == 0, Total_metal + 1, Total_metal)),
+         log_Total_rubber = log10(if_else(Total_rubber == 0, Total_rubber + 1, Total_rubber)),
+         log_Total_glass = log10(if_else(Total_glass == 0, Total_glass + 1, Total_glass)),
+         log_Total_NP = log10(if_else(Total_NP == 0, Total_NP + 1, Total_NP)),
+         log_Total_mis = log10(if_else(Total_mis == 0, Total_mis + 1, Total_mis)),
+         log_Total_ceramics = log10(if_else(Total_ceramics == 0, Total_ceramics + 1, Total_ceramics)),
+         log_A2 = log10(if_else(A2 == 0, A2 + 1, A2)),
+         log_A17 = log10(if_else(A17 == 0, A17 + 1, A17)),
+         log_A21 = log10(if_else(A21 == 0, A21 + 1, A21)),
+         log_A20 = log10(if_else(A20 == 0, A20 + 1, A20)),
+         log_A5 = log10(if_else(A5 == 0, A5 + 1, A5)),
+         log_A6 = log10(if_else(A6 == 0, A6 + 1, A6)),
+         A5_A6 = A5 + A6,
+         log_A5A6 = log10(if_else(A5_A6 == 0, A5_A6 + 1, A5_A6))
+  )
+         # Example on how to create factors
+         # Creating new factors => een nieuwe kolom creeren met een samenvoeging van de antwoorden op compost en manure, sept is de seperator tussen de twee antwoorden
+         #Compost_manure = paste0(Compost, sep = "_", Manure),
+         
+         # factors: aanpassen van de volgorde van de antwoorden. Je moet echt typen hoe het in de kolommen staat. 
+         #Compost = factor(Compost, levels = c("Yes", "No", "")))
+
+```
+
+
+## Bewerkingen NA
+Uitfilteren van NA in de bewerkingen (compost, manure, tillage, Irrigation, pesticides, Usage_plastic_foil and crop_rotation)
+
+Hiervan elk een aparte dataset maken aangezien de velden waarbij het is ingevuld niet 100% overeen komen:
+
+- Compost: 28 velden NA
+- Manure: 28 velden NA
+- Irrigation: 29 velden NA veld MC030 extra tov compost and manure
+- Tillage: 33 velden NA: MC030, 138, 160, 172, 146
+- Crop-rotation: 26 velden NA
+- Pesticides: 28 velden NA
+- Crop rotation
+
+```{r}
+# Data manipulatie
+MAP_all_noNA <- MAP_all %>%
+  
+  filter(!is.na(Compost), 
+         !is.na(Manure), 
+         !is.na(Irrigation), 
+         !is.na(Usage_plastic_foil), 
+         !is.na(tillage), 
+         !is.na(crop_rotation), 
+         !is.na(pesticides)) #NA uitfilteren
+
+```
+
+## Dataframe Belgium
+
+```{r}
+MAP_Belgium <- MAP_all %>%
+  filter(Country == "Belgium")
+
+MAP_Belgium_noNA <- MAP_Belgium %>%
+  filter(!is.na(distance_city), 
+         !is.na(distance_highway), 
+         !is.na(distance_industrie_VL), 
+         !is.na(distance_industrie_WL), 
+         !is.na(distance_village), 
+         !is.na(distance_waste_industriel_WL), 
+         !is.na(min_distance_waste),
+         !is.na(distance_waste_industriel_WL),
+         !is.na(min_distance_industry),
+         !is.na(min_distance_IndorW))
+```
+
+
+## Dataframe Vlaanderen
+```{r}
+MAP_flanders <- MAP_Belgium_noNA %>%
+  filter(Belgium_part == "Flanders")
+
+```
+
+
+## Dataframe Wallonië
+```{r}
+MAP_Wallonia <- MAP_Belgium_noNA %>%
+  filter(Belgium_part == "Wallonia")
+
+```
+
+## OMZETTING VAN LONG TO WIDE FORMAT
+
+```{r}
+# From long to wide 
+##From long to wide format  (all)                     
+MAP_long <- MAP_all %>%
+  
+  pivot_longer(
+    cols = matches("^[A-G]\\d+$"),
+    names_to = "waste_category",
+    values_to = "counts"
+  ) %>%
+  # Adjust the factor level
+  mutate(log_total_counts = log10(Total_macromaterials + 1),   # Calculated in excel by Benthe
+        log_counts = log10(counts + 1))  # Log transformation of each unique count per plastic category)
+
+```
+
+```{r}
+# Focus only on the plastics
+## Create a factor containing the order of plastic_category
+order_plastic_category <- c(paste0("A", 1:21))
+
+## Filter out only the plastics and remove samples with any zeroes from total plastics
+MAP_plastic_long <-  MAP_long %>%
+  
+  filter(Total_plastics > 0,
+         str_detect(waste_category, "A")) %>%
+
+  # Adjust the factor level
+  mutate(waste_category = factor(waste_category, levels = order_plastic_category),
+        
+        log_total_counts = log10(if_else(Total_plastics == 0, Total_plastics + 1, Total_plastics)),   # Calculated in excel by Benthe
+        log_counts = log10(counts + 1))  # Log transformation of each unique count per plastic category)
+```
+
+```{r}
+#MOEST JE DIT NODIG HEBBEN
+# Voeg een nieuwe kolom toe met de details van de verschillende categoriën
+MAP_long <- MAP_long %>%
+  mutate(details = case_when(
+    grepl("A1", waste_category) ~ "Bottle",
+    grepl("A2", waste_category) ~ "Sheet",
+    grepl("A3", waste_category) ~ "Bag",
+    grepl("A4", waste_category) ~ "Caps and lids",
+    grepl("A5", waste_category) ~ "Monofilament",
+    grepl("A6", waste_category) ~ "Entangled monofilament",
+    grepl("A7", waste_category) ~ "Synthetic rope",
+    grepl("A8", waste_category) ~ "Plastic (animal) tags",
+    grepl("A9", waste_category) ~ "Cable ties",
+    grepl("A10", waste_category) ~ "Strapping band",
+    grepl("A11", waste_category) ~ "Crates and containers",
+    grepl("A12", waste_category) ~ "Sanitary products",
+    grepl("A13", waste_category) ~ "Plastic construction material",
+    grepl("A14", waste_category) ~ "Other",
+    grepl("A15", waste_category) ~ "Medical related plastic",
+    grepl("A16", waste_category) ~ "Plastic irrigation pipes",
+    grepl("A17", waste_category) ~ "Fragments of non-foamed plastic (Hard plastic)",
+    grepl("A18", waste_category) ~ "Plastic shotgun cartridges",
+    grepl("A19", waste_category) ~ "Fragments of foamed plastic",
+    grepl("A20", waste_category) ~ "Crisp packets/sweet wrappers",
+    grepl("A21", waste_category) ~ "Plastic stickers"
+  ))
+```
+
+
+## Design
+### Theme publish
+Layout maken voor de figuren, je kan in je figuren dan theme aanpassen naar theme_publish en dan zien al jouw figuren er hetzelfde uit. Je kan hieruit de layout aanpassen en dan je script lopen en dan veranderen al je figuren in 1 keer. Aanpassingen 
+```{r include=TRUE}
+theme_publish <- function () {
+  theme(
+    # add axis lines
+    axis.line.y = element_line(color = "darkgrey"),
+    axis.line.x = element_line(color = "darkgrey"),
+    # remove the background
+    panel.background = element_blank(), 
+    # the gridlines of the y-axis 
+    panel.grid.major.y = element_line(colour = "lightgrey", linewidth = 0.2), 
+    panel.grid.minor.y = element_line(colour = "lightgrey", linewidth = 0.2), 
+    # the gridlines of the x-axis
+    panel.grid.major.x = element_line(colour = "lightgrey", linewidth = 0.2), 
+    panel.grid.minor.x = element_line(colour = "lightgrey", linewidth = 0.2), 
+    # size of the titles
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 14),
+    plot.title = element_text(hjust = 0, size = 16, face = "bold"),
+    #axis.text.x = element_blank(),
+    #remove background legend
+    legend.key = element_blank()
+    )
+}
+
+```
+
+###Theme poster
+```{r include=TRUE}
+theme_poster <- function () {
+  theme(
+    # add axis lines
+    axis.line.y = element_line(color = "black"),
+    axis.line.x = element_line(color = "black"),
+    # remove the background
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+    # the gridlines of the y-axis 
+    panel.grid.major.y = element_line(colour = "darkgrey", linewidth = 0.5), 
+    panel.grid.minor.y = element_line(colour = "darkgrey", linewidth = 0.5), 
+    # the gridlines of the x-axis
+    panel.grid.major.x = element_line(colour = "darkgrey", linewidth = 0.5), 
+    panel.grid.minor.x = element_line(colour = "darkgrey", linewidth = 0.5), 
+    # size of the titles
+    axis.title = element_text(size = 24),
+    axis.text = element_text(size = 20),
+    plot.title = element_text(hjust = 0, size = 16, face = "bold"),
+    #axis.text.x = element_blank(),
+    #remove background legend
+    legend.key = element_blank()
+    )
+}
+
+```
+
+
+### Colour scheme
+
+#### Colour macromaterial category
+##### A - Plastic 
+```{r}
+order_plastic_category <- c(paste0("A", 1:21))
+
+# Create a colour code with HEX colours
+fcol_plastic_type <- c("#e8908b", "#df6f6a", "#d96a65", "#d36560", "#cc605b", 
+                           "#c55a56", "#be5551", "#b74f4c", "#b04947", "#a94342", 
+                           "#a23d3d", "#9b3738", "#942f33", "#8d272e", "#861f29", 
+                           "#7f1724", "#780e1f", "#710618", "#6a000f", "#630006", 
+                           "#5c0000")
+
+# Name the colours
+names(fcol_plastic_type) <- order_plastic_category
+
+# Visualize the colours for each plastic category
+plot(
+  factor(order_plastic_category, order_plastic_category), 
+  col = fcol_plastic_type
+  )
+```
+
+##### B - Metal
+```{r}
+order_metal_category <- c(paste0("B", 1:8))
+
+# Create a colour code with HEX colours
+fcol_metal_type <- c("#f2e5c2", "#f0cd6e", "#edbb2f","#fcbf17", "#e39b49", "#de8716", "#bf720d", "#a35e03")
+
+# Name the colours
+names(fcol_metal_type) <- order_metal_category
+
+# Visualize the colours for each metal category
+plot(
+  factor(order_metal_category, order_metal_category), 
+  col = fcol_metal_type
+  )
+```
+
+##### C - Rubber
+```{r}
+order_rubber_category <- c(paste0("C", 1:5))
+
+# Create a colour code with HEX colours
+fcol_rubber_type <- c("#f0e878", "#e6db4c", "#c9be1c", "#d9c004", "#c99402")
+
+# Name the colours
+names(fcol_rubber_type) <- order_rubber_category
+
+# Visualize the colours for each plastic category
+plot(
+  factor(order_rubber_category, order_rubber_category), 
+  col = fcol_rubber_type
+  )
+```
+
+##### D - Glass
+```{r}
+order_glass_category <- c(paste0("D", 1:4))
+
+# Create a colour code with HEX colours
+fcol_glass_type <- c("#a6f5e5", "#5cd1ba", "#279c84", "#036e58")
+
+# Name the colours
+names(fcol_glass_type) <- order_glass_category
+
+# Visualize the colours for each plastic category
+plot(
+  factor(order_glass_category, order_glass_category), 
+  col = fcol_glass_type
+  )
+```
+
+##### E - Natural products
+```{r}
+order_natural_category <- c(paste0("E", 1:5))
+
+# Create a colour code with HEX colours
+fcol_natural_type <- c("#9fe0b1", "#34e062", "#0e8c30", "#086320", "#023b11")
+
+# Name the colours
+names(fcol_natural_type) <- order_natural_category
+
+# Visualize the colours for each plastic category
+plot(
+  factor(order_natural_category, order_natural_category), 
+  col = fcol_natural_type
+  )
+```
+
+
+##### F - Miscellaneaus
+```{r}
+order_Mis_category <- c(paste0("F", 1:3))
+
+# Create a colour code with HEX colours
+fcol_Mis_type <- c("#C6DBEF", "#6BAED6", "#084594")
+
+# Name the colours
+names(fcol_Mis_type) <- order_Mis_category
+
+# Visualize the colours for each plastic category
+plot(
+  factor(order_Mis_category, order_Mis_category), 
+  col = fcol_Mis_type
+  )
+```
+
+##### G - Ceramics
+```{r}
+order_ceramics_category <- c(paste0("G", 1:6))
+
+# Create a colour code with HEX colours
+fcol_ceramics_type <- c("#e9d7fa", "#bd96e0", "#c395ed", "#aa50d4", "#a151ed", "#7f14e3", "#4d0491")
+
+# Name the colours
+names(fcol_ceramics_type) <- order_ceramics_category
+
+# Visualize the colours for each plastic category
+plot(
+  factor(order_ceramics_category, order_ceramics_category), 
+  col = fcol_ceramics_type
+  )
+```
+
+# MACROLITTER
+## DATA EXPLORATION 
+### Summary
+Summary of the mean, amount of fields, SD, SE and CI grouped by country.
+```{r}
+summary <- MAP %>%
+  group_by(Country) %>% #onderverdelen in groepen, je kan hier ook meerder aan meegeven zoals bv compost
+  dplyr::summarize(Mean = mean(Total_macromaterials, na.rm = TRUE),
+             n = n(),
+             SD = sd(Total_macromaterials,na.rm = TRUE),
+             SE = sd(Total_macromaterials, na.rm = TRUE)/sqrt(n),
+             CI.lower = Mean - 2*SE,
+             CI.upper = Mean + 2*SE) #%>%
+  #formattable
+ 
+summary
+```
+```{r}
+columns_to_summarize <- c("Total_macromaterials", "Total_plastics", "Total_metal", "Total_rubber", "Total_glass", "Total_mis", "Total_NP", "Total_ceramics", "A21", "A2", "A17", "A20", "A14","A6", "A5", "A19")
+
+summary <- data.frame(
+  Variable = columns_to_summarize,
+  Mean = sapply(MAP_all[ , columns_to_summarize], function(x) mean(x, na.rm = TRUE)),
+  SD = sapply(MAP_all[ , columns_to_summarize], function(x) sd(x, na.rm = TRUE)),
+  SE = sapply(MAP_all[ , columns_to_summarize], function(x) sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x)))),
+  Min  = sapply(MAP_all[, columns_to_summarize], function(x) min(x, na.rm = TRUE)),
+  Max  = sapply(MAP_all[, columns_to_summarize], function(x) max(x, na.rm = TRUE)), 
+  Sum = sapply(MAP_all[, columns_to_summarize], function(x) sum(x, na.rm = TRUE)))
+
+print(summary)
+```
+volgorde: A2 - A17 - A20 - A6 - A5 - A21 - A19
+
+## DATA VISUALISATION
+### Staafdiagrammen of all categories
+```{r}
+# Define the sub-categories. As R will place automatically 1,10 next to each other, the categories would switch from place.
+ordered_levels <- c(paste0("A", 1:21),
+                    paste0("B", 1:8),
+                    paste0("C", 1:5),
+                    paste0("D", 1:4),
+                    paste0("E", 1:5),
+                    paste0("F", 1:3),
+                    paste0("G", 1:6))
+
+# Maak een factor aan met de gewenste niveaus
+MAP_mean_categories$Subcategories <- factor(MAP_mean_categories$Subcategories, levels = ordered_levels)
+
+MAP_mean_categories <- MAP_mean_categories %>%
+  mutate(
+    mean = as.numeric(mean),
+    SE = as.numeric(SE)
+  )
+
+```
+
+**Plastic**
+
+```{r}
+Staaf_plastic <- ggplot(MAP_mean_categories[1:21, ], aes(x = Subcategories, y = mean, fill = Subcategories)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values =  fcol_plastic_type, name = "Subcategories") +
+  geom_errorbar(aes(ymin = mean - SE, ymax = mean + SE), width = 0.2) +
+  
+  
+  theme_publish() +
+  ylab("Mean number of plastics/Ha")  +
+  xlab("Plastic subcategories")
+
+Staaf_plastic
+ggsave("Plots_all_litter/Staaf_plastic.png", width = 14, height = 7, dpi = 600, bg = "transparent")
+```
+**Metal**
+```{r}
+Staaf_metal <- ggplot(MAP_mean_categories[22:29, ], aes(x = Subcategories, y = mean, fill = Subcategories)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values =  fcol_metal_type, name = "Subcategories") +
+  geom_errorbar(aes(ymin = mean - SE, ymax = mean + SE), width = 0.2) +
+  
+  theme_publish() +
+  ylab("Mean number of metal/Ha")  +
+  xlab("Metal subcategories")
+
+Staaf_metal
+#ggsave("Plots_all_litter/Staaf_plastic.pdf", width = 15, height = 5, dpi = 600)
+```
+
+**Rubber**
+
+```{r}
+Staaf_rubber <- ggplot(MAP_mean_categories[30:34, ], aes(x = Subcategories, y = mean, fill = Subcategories)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values =  fcol_rubber_type, name = "Subcategories") +
+  geom_errorbar(aes(ymin = mean - SE, ymax = mean + SE), width = 0.2) +
+  
+  theme_publish() +
+  ylab("Mean number of rubber/Ha")  +
+  xlab("Rubber subcategories")
+
+Staaf_rubber
+#ggsave("Plots_all_litter/Staaf_plastic.pdf", width = 15, height = 5, dpi = 600)
+```
+
+**Glass**
+```{r}
+Staaf_glass <- ggplot(MAP_mean_categories[35:38, ], aes(x = Subcategories, y = mean, fill = Subcategories)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values =  fcol_glass_type, name = "Subcategories") +
+  geom_errorbar(aes(ymin = mean - SE, ymax = mean + SE), width = 0.2) +
+  
+  theme_publish() +
+  ylab("Mean number of glass/Ha")  +
+  xlab("Glass subcategories")
+
+Staaf_glass
+#ggsave("Plots_all_litter/Staaf_plastic.pdf", width = 15, height = 5, dpi = 600)
+```
+
+**Natural products**
+```{r}
+Staaf_NP <- ggplot(MAP_mean_categories[39:43, ], aes(x = Subcategories, y = mean, fill = Subcategories)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values =  fcol_natural_type, name = "Subcategories") +
+  geom_errorbar(aes(ymin = mean - SE, ymax = mean + SE), width = 0.2) +
+  
+  theme_publish() +
+  ylab("Mean number of natural products/Ha")  +
+  xlab("Natural products subcategories")
+
+Staaf_NP
+#ggsave("Plots_all_litter/Staaf_plastic.pdf", width = 15, height = 5, dpi = 600)
+```
+
+
+**Miscellaneous**
+```{r}
+Staaf_mis <- ggplot(MAP_mean_categories[44:46, ], aes(x = Subcategories, y = mean, fill = Subcategories)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values =  fcol_Mis_type, name = "Subcategories") +
+  geom_errorbar(aes(ymin = mean - SE, ymax = mean + SE), width = 0.2) +
+  
+  theme_publish() +
+  ylab("Mean number of miscellaneous/Ha")  +
+  xlab("Miscellaneous Subcategories")
+
+Staaf_mis
+#ggsave("Plots_all_litter/Staaf_plastic.pdf", width = 15, height = 5, dpi = 600)
+```
+
+**Ceramics**
+```{r}
+Staaf_ceramics <- ggplot(MAP_mean_categories[47:52, ], aes(x = Subcategories, y = mean, fill = Subcategories)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values =  fcol_ceramics_type, name = "Subcategories") +
+  geom_errorbar(aes(ymin = mean - SE, ymax = mean + SE), width = 0.2) +
+  
+  theme_publish() +
+  ylab("Mean number of ceramics/Ha")  +
+  xlab("Ceramics Subcategories")
+
+Staaf_ceramics
+#ggsave("Plots_all_litter/Staaf_plastic.pdf", width = 15, height = 5, dpi = 600)
+```
+```{r}
+Plot_staaf <- Staaf_plastic / (Staaf_metal+Staaf_rubber)/(Staaf_glass + Staaf_NP)/(Staaf_mis + Staaf_ceramics) +
+    plot_annotation(tag_levels = "A") &
+  theme(plot.margin = margin(10, 20, 10, 20))
+Plot_staaf
+ggsave("Plots_all_litter/Plot_staaf.png", width = 15, height = 18, dpi = 600)
+
+```
+
+### Histograms of all categories
+#### Counts
+Calculation of mean and median of Total_plastics
+
+```{r}
+mean_total_litter <- mean(MAP$Total_macromaterials)
+median_total_litter <- median(MAP$Total_macromaterials)
+```
+**Histogram of Total_macromaterials:**
+
+```{r}
+Plot_histcounts <- ggplot(MAP) +
+  geom_histogram(aes(Total_macromaterials), bins = 30, alpha = 0.7) +
+  #scale_x_continuous(limits = c(0, 3000)) +
+  geom_vline(aes(xintercept = mean_total_litter), linetype = "dashed", size = 1, color = '#0736ad') +
+  annotate("text", x = mean_total_litter + 60000, y = 70, label = paste("Mean =", round(mean_total_litter, 2)), size = 5, color = '#0736ad') +
+  geom_vline(aes(xintercept = median_total_litter), linetype = "dashed", size = 1, color = '#07a5ad') +
+  annotate("text", x = median_total_litter + 60000, y = 50, label = paste("Median =", round(median_total_litter, 2)), size = 5, color = '#07a5ad') +
+  ylab("Count") +
+  xlab("Total litter count") +
+  labs( tag = "A") +
+  theme_publish()
+
+Plot_histcounts
+
+```
+Histogram is skewed to the left, so we will try to log10 transform the data.
+
+#### Log counts
+In this step, we are going to use log-transformed data to create histograms. We will use log10 transformation
+
+```{r}
+mean_log_total_litter <- mean(MAP_all$log_Total_litter)
+median_log_total_litter <- median(MAP_all$log_Total_litter)
+```
+
+##### Histogram of Total_macromaterials log transformed:
+
+```{r}
+Plot_histlogcounts <- ggplot(MAP_all) +
+  geom_histogram(aes(log_Total_litter), binwidth = 0.1) +
+  geom_vline(aes(xintercept = mean_log_total_litter), linetype = "dashed", size = 1, color = '#0736ad') +
+  annotate("text", x = mean_log_total_litter + 2, y = 40, label = paste("Mean =", round(mean_log_total_litter, 2)), size = 5, color = '#0736ad') +
+  geom_vline(aes(xintercept = median_log_total_litter), linetype = "dashed", size = 1, color = '#07a5ad') +
+  annotate("text", x = median_log_total_litter + 2, y = 50, label = paste("Median =", round(median_log_total_litter, 2)), size = 5, color = '#07a5ad') +
+  ylab("Frequency") +
+  xlab("Log10 of total litter count/Ha") +
+  theme_publish()
+
+Plot_histlogcounts
+```
+The histogram is a little skewed to the left. The difference between mean and median is minor.
+
+
+
+df <- data.frame(
+  value = c(MAP_all$log_Total_plastic, 
+            MESO_all$log_Total_mesoplastic, 
+            MACRO_all$log_Total_macroplastic),
+  group = factor(c(
+    rep("log_Total_plastic",      nrow(MAP_all)),
+    rep("log_Total_mesoplastic",  nrow(MESO_all)),
+    rep("log_Total_macroplastic", nrow(MACRO_all))
+  ))
+)
+
+stats <- df %>%
+  group_by(group) %>%
+  summarize(mean_val = mean(value, na.rm = TRUE),
+            median_val = median(value, na.rm = TRUE))
+stats
+
+Hist_plastic <- ggplot(df, aes(x = value, fill = group)) +
+  geom_histogram(bins = 30, alpha = 0.8) +
+  # Mean lines (dashed)
+  geom_vline(data = stats, aes(xintercept = mean_val, color = group),
+             linetype = "dashed", size = 1) +
+  
+  # Median lines (solid)
+  geom_vline(data = stats, aes(xintercept = median_val, color = group),
+             linetype = "solid", size = 1) +
+  
+  theme_publish() +
+  labs(x = "Log10 of total plastic/Ha", y = "Frequency")
+
+Hist_plastic
+
+
+
+**Plastic**
+```{r}
+Hist_plastic <- ggplot(MAP_all, aes(x = log_Total_plastic)) +
+  geom_histogram(bins = 30, fill = "#cc605b", alpha = 1) +
+  
+  # Mean
+  geom_vline(aes(xintercept = mean(log_Total_plastic)), 
+             linetype = "dashed", size = 1) +
+  
+  annotate("text", x = mean(MAP_all$log_Total_plastic) + 1.5, y = 24, 
+           label = paste("Mean =", round(mean(MAP_all$log_Total_plastic), 2)), size = 5) +
+  
+  # Median
+  geom_vline(aes(xintercept = median(log_Total_plastic)), linetype = "dashed", size = 1, color = '#7a7878') +
+  
+  annotate("text", x = median(MAP_all$log_Total_plastic) + 1.6, y = 28, 
+           label = paste("Median =", round(median(MAP_all$log_Total_plastic), 2)), size = 5, color = '#7a7878') +
+  
+  theme_publish() +
+  labs(x = "Log10 of total plastic/Ha", y = "Amount of fields")
+
+Hist_plastic
+ggsave("Plots_all_litter/Hist_plastic.png", width = 7, height = 5, dpi = 600, bg = "transparent")
+
+```
+
+**Metal**
+```{r}
+Hist_metal <- ggplot(MAP_all, aes(x = log_Total_metal)) +
+  geom_histogram(bins = 30, fill = "#e39b49", alpha = 0.8) +
+  
+  # Mean
+  geom_vline(aes(xintercept = mean(log_Total_metal)), 
+             linetype = "dashed", size = 1) +
+  
+  annotate("text", x = mean(MAP_all$log_Total_metal) + 1, y = 25, 
+           label = paste("Mean =", round(mean(MAP_all$log_Total_metal), 2)), size = 5) +
+  
+  # Median
+  geom_vline(aes(xintercept = median(log_Total_metal)), linetype = "dashed", size = 1, color = '#7a7878') +
+  
+  annotate("text", x = median(MAP_all$log_Total_metal) + 1, y = 50, 
+           label = paste("Median =", round(median(MAP_all$log_Total_metal), 2)), size = 5, color = '#7a7878') +
+  
+  theme_publish() +
+  labs(x = "Log10 of total metal/Ha", y = "Frequency")
+
+Hist_metal
+
+```
+**Rubber**
+```{r}
+Hist_rubber <- ggplot(MAP_all, aes(x = log_Total_rubber)) +
+  geom_histogram(bins = 30, fill = "#e6db4c", alpha = 0.8) +
+  
+  # Mean
+  geom_vline(aes(xintercept = mean(log_Total_rubber)), 
+             linetype = "dashed", size = 1) +
+  
+  annotate("text", x = mean(MAP_all$log_Total_rubber) + 1, y = 25, 
+           label = paste("Mean =", round(mean(MAP_all$log_Total_rubber), 2)), size = 5) +
+  
+  # Median
+  geom_vline(aes(xintercept = median(log_Total_rubber)), linetype = "dashed", size = 1, color = '#7a7878') +
+  
+  annotate("text", x = median(MAP_all$log_Total_rubber) + 1, y = 40, 
+           label = paste("Median =", round(median(MAP_all$log_Total_rubber), 2)), size = 5, color = '#7a7878') +
+  
+  theme_publish() +
+  labs(x = "Log10 of total rubber/Ha", y = "Frequency")
+
+Hist_rubber
+
+```
+
+**Glass**
+```{r}
+Hist_glass <- ggplot(MAP_all, aes(x = log_Total_glass)) +
+  geom_histogram(bins = 30, fill = "#5cd1ba", alpha = 0.8) +
+  
+  # Mean
+  geom_vline(aes(xintercept = mean(log_Total_glass)), 
+             linetype = "dashed", size = 1) +
+  
+  annotate("text", x = mean(MAP_all$log_Total_glass) + 1, y = 25, 
+           label = paste("Mean =", round(mean(MAP_all$log_Total_glass), 2)), size = 5) +
+  
+  # Median
+  geom_vline(aes(xintercept = median(log_Total_glass)), linetype = "dashed", size = 1, color = '#7a7878') +
+  
+  annotate("text", x = median(MAP_all$log_Total_glass) + 1, y = 40, 
+           label = paste("Median =", round(median(MAP_all$log_Total_glass), 2)), size = 5, color = '#7a7878') +
+  
+  theme_publish() +
+  labs(x = "Log10 of total glass/Ha", y = "Frequency")
+
+Hist_glass
+
+```
+**Natural products**
+```{r}
+Hist_NP <- ggplot(MAP_all, aes(x = log_Total_NP)) +
+  geom_histogram(bins = 30, fill = "#0e8c30", alpha = 0.8) +
+  
+  # Mean
+  geom_vline(aes(xintercept = mean(log_Total_NP)), 
+             linetype = "dashed", size = 1) +
+  
+  annotate("text", x = mean(MAP_all$log_Total_NP) + 1, y = 25, 
+           label = paste("Mean =", round(mean(MAP_all$log_Total_NP), 2)), size = 5) +
+  
+  # Median
+  geom_vline(aes(xintercept = median(log_Total_NP)), linetype = "dashed", size = 1, color = '#7a7878') +
+  
+  annotate("text", x = median(MAP_all$log_Total_NP) + 1, y = 45, 
+           label = paste("Median =", round(median(MAP_all$log_Total_NP), 2)), size = 5, color = '#7a7878') +
+  
+  theme_publish() +
+  labs(x = "Log10 of total natural products/Ha", y = "Frequency")
+
+Hist_NP
+
+```
+
+**Miscellaneous**
+```{r}
+Hist_mis <- ggplot(MAP_all, aes(x = log_Total_mis)) +
+  geom_histogram(bins = 30, fill = "#6BAED6", alpha = 0.8) +
+  
+  # Mean
+  geom_vline(aes(xintercept = mean(log_Total_mis)), 
+             linetype = "dashed", size = 1) +
+  
+  annotate("text", x = mean(MAP_all$log_Total_mis) + 1, y = 25, 
+           label = paste("Mean =", round(mean(MAP_all$log_Total_mis), 2)), size = 5) +
+  
+  # Median
+  geom_vline(aes(xintercept = median(log_Total_mis)), linetype = "dashed", size = 1, color = '#7a7878') +
+  
+  annotate("text", x = median(MAP_all$log_Total_mis) + 1, y = 45, 
+           label = paste("Median =", round(median(MAP_all$log_Total_mis), 2)), size = 5, color = '#7a7878') +
+  
+  theme_publish() +
+  labs(x = "Log10 of total miscellaneous/Ha", y = "Frequency")
+
+Hist_mis
+
+```
+
+
+**Ceramics**
+```{r}
+Hist_ceramics <- ggplot(MAP_all, aes(x = log_Total_ceramics)) +
+  geom_histogram(bins = 30, fill = "#7f14e3", alpha = 0.8) +
+  
+  # Mean
+  geom_vline(aes(xintercept = mean(log_Total_ceramics)), 
+             linetype = "dashed", size = 1) +
+  
+  annotate("text", x = mean(MAP_all$log_Total_ceramics) + 1, y = 25, 
+           label = paste("Mean =", round(mean(MAP_all$log_Total_ceramics), 2)), size = 5) +
+  
+  # Median
+  geom_vline(aes(xintercept = median(log_Total_ceramics)), linetype = "dashed", size = 1, color = '#7a7878') +
+  
+  annotate("text", x = median(MAP_all$log_Total_ceramics) + 1, y = 30, 
+           label = paste("Median =", round(median(MAP_all$log_Total_ceramics), 2)), 
+           size = 5, color = '#7a7878') +
+  
+  theme_publish() +
+  labs(x = "Log10 of total ceramics/Ha", y = "Frequency")
+
+Hist_ceramics
+
+```
+
+
+```{r}
+Hist_categories <- (Plot_histlogcounts+Hist_plastic) / (Hist_metal+Hist_rubber)/(Hist_glass + Hist_NP)/(Hist_mis + Hist_ceramics) +
+    plot_annotation(tag_levels = "A") &
+  theme(plot.margin = margin(10, 20, 10, 20))
+Hist_categories
+ggsave("Plots_all_litter/Hist_categories.png", width = 10, height = 15, dpi = 600)
+```
+
+**Histogram with stacked bars of macromaterials** NEED ADAPTATION TO MACROMATERIALS 
+
+```{r}
+ggplot() +
+  
+  # Add stacked bars for macromaterials
+  geom_histogram(data = MAP_long, aes(x = log_counts, fill = waste_category), 
+                 bins = 30, alpha = 1, position = "identity") +  # Ensure bins align
+  
+  # Formatting
+  scale_fill_manual(values = fcol_plastic_type) +  # Custom colors
+  theme_publish ()
+```
+
+
+#### Histogram stacked Macro en meso
+
+
+
+
+
+# MACROPLASTIC
+## DATA EXPLORATION
+### Summary
+Summary of the mean, amount of fields, SD, SE and CI grouped by country.
+```{r}
+summary <- MAP %>%
+  group_by(Country) %>% #onderverdelen in groepen, je kan hier ook meerder aan meegeven zoals bv compost
+  dplyr::summarize(Mean = mean(Total_plastics, na.rm = TRUE),
+             n = n(),
+             SD = sd(Total_plastics,na.rm = TRUE),
+             SE = sd(Total_plastics, na.rm = TRUE)/sqrt(n),
+             CI.lower = Mean - 2*SE,
+             CI.upper = Mean + 2*SE) #%>%
+  #formattable
+ 
+summary
+```
+
+## DATA VISUALISATION
+**Boxplot - Country**
+```{r}
+Boxplot_country <- ggplot(MAP, aes(x = Country, y = Total_plastics)) +
+  geom_boxplot(outlier.shape = 2) +
+  geom_jitter() +
+  theme_publish() + 
+  
+  labs(title = "Total Number of Plastics by Country",
+       x = "Country", y = "Total Number of Plastics") 
+Boxplot_country
+```
+## CORRELATION
+### Veld bewerkingen
+Enkele velden zijn hier niet in opgenomen aangezien ze geen gegevens over de bewerkingen van het veld bevatten.
+
+```{r}
+# Correlation matrix
+# One hot encoding for numerical variables
+MAP_all_noNA <- MAP_all_noNA %>%
+  mutate(
+    Compost_binary = ifelse(Compost == "Yes", 1, 0),
+    Manure_binary = ifelse(Manure == "Yes", 1, 0),
+    Pesticides_binary = ifelse(pesticides == "Yes", 1, 0),
+    Crop_rotation_binary = ifelse(crop_rotation == "Yes", 1, 0),
+    Irrigation_yesno_binary = ifelse(Irrigationyesno == "Yes", 1, 0)
+      ) %>%
+  dummy_cols(select_columns = c("tillage", "Irrigation", "Usage_plastic_foil"), remove_selected_columns = FALSE)
+
+# Variables for our research question with one hot enconding
+correlation_data <- MAP_all_noNA %>%
+  dplyr::select(
+    log_Total_plastic, 
+    Compost_binary, 
+    Manure_binary, 
+    Pesticides_binary,
+    Crop_rotation_binary,
+    starts_with("tillage_"),
+    starts_with("Irrigation_"),
+    starts_with("Usage_plastic_foil_")
+  )  
+str(correlation_data)
+# Compute correlation matrix
+cor_matrix <- cor(correlation_data, use = "complete.obs", method = "pearson")
+
+# Plot Correlation matrix 
+
+cor_data <- melt(cor_matrix)
+cor_heatmap <- ggplot(cor_data, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1, 1)) +
+  labs(title = "Correlation Matrix",
+       x = "Variables",
+       y = "Variables",
+       fill = "Correlation Coefficient")+  
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+cor_data
+print(cor_heatmap)
+ggsave("cor_heatmap_bewerkingen.pdf", plot = cor_heatmap, width = 10, height = 10)
+```
+
+### Soil index & Location index
+```{r}
+correlation_data <- MAP_all %>%
+  dplyr::select(
+    log_Total_plastic, 
+    soilindex,
+    location_index,
+    total_index)
+
+# Compute correlation matrix
+cor_matrix <- cor(correlation_data, use = "complete.obs", method = "pearson")
+
+# Plot Correlation matrix 
+
+cor_data <- melt(cor_matrix)
+cor_heatmap <- ggplot(cor_data, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1, 1)) +
+  labs(title = "Correlation Matrix",
+       x = "Variables",
+       y = "Variables",
+       fill = "Correlation Coefficient")+  
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+print(cor_heatmap)
+ggsave("cor_heatmap_index.pdf", plot = cor_heatmap, width = 10, height = 10)
+```
+All indexes are positively correlated with log_total_plastic
+
+### Distance only for Belgium!
+```{r}
+correlation_data <- MAP_Belgium %>%
+  dplyr::select(
+    log_Total_plastic, 
+    distance_city,
+    distance_highway,
+    distance_industrie_VL,
+    distance_industrie_WL,
+    distance_recypark_VL,
+    distance_village,
+    distance_recypark_WL,
+    distance_waste_industriel_WL,
+    Distance_primroutes,
+    min_distance_waste,
+    min_distance_industry)
+
+# Compute correlation matrix
+cor_matrix <- cor(correlation_data, use = "complete.obs", method = "pearson")
+
+# Plot Correlation matrix 
+
+cor_data <- melt(cor_matrix)
+cor_heatmap <- ggplot(cor_data, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1, 1)) +
+  labs(title = "Correlation Matrix",
+       x = "Variables",
+       y = "Variables",
+       fill = "Correlation Coefficient")+  
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+cor_data
+print(cor_heatmap)
+ggsave("cor_heatmap_distance.pdf", plot = cor_heatmap, width = 10, height = 10)
+```
+Positive correlations between Log_total_plastics and the distances:
+
+- Distance_city: 0.0268
+- Distance_industry_Vl: 0.06002
+- distance_recypark_VL: 0.060927993	
+- distance_village: 0.045235305
+- min_distance_waste: 0.076795499
+- min_distance_industry: 0.086242689	
+
+Negative correlations between Log_total_plastic and the distances of Belgium:
+
+- Distance_highway: -0.0735
+- distance_industrie_WL: -0.022896008	
+- distance_recypark_WL: -0.029960901
+- distance_waste_industriel_WL: -0.038237950
+- Distance_primroutes: -0.026981026	
+
+# Pie chart field management
+```{r}
+# Convert to factors (optional, for clean labeling)
+Compost <- factor(MAP_all_noNA$Compost, levels = c("Yes", "No"))
+Manure <- factor(MAP_all_noNA$Manure, levels = c("Yes", "No"))
+Irrigation <- factor (MAP_all_noNA$Irrigation, levels = c("Other", "No", "Groundwater", "Surface_water", "Treated_wastewater", "Drinking_water"))
+Plastic_usage <- factor (MAP_all_noNA$Usage_plastic_foil, levels = c("Yes_Bioplastics", "Yes_other_plastics", "No"))
+Tillage <- factor (MAP_all_noNA$tillage, levels = c("Ploughing", "Non_inverted_tillage", "No"))
+Crop_rotation <- factor(MAP_all_noNA$crop_rotation, levels = c("Yes", "No"))
+pesticides <- factor(MAP_all_noNA$pesticides, levels = c("Yes", "No"))
+```
+
+```{r}
+# Function to prepare pie chart data
+prepare_pie_data <- function(column_data, col_name) {
+  df <- data.frame(Response = column_data) %>%
+    mutate(Response = as.character(Response),
+           Response = ifelse(is.na(Response), "NA", Response)) %>%
+    group_by(Response) %>%
+    summarise(Count = n()) %>%
+    mutate(Column = col_name)
+  return(df)
+}
+
+# Prepare data for both columns
+data_Compost <- prepare_pie_data(MAP_all_noNA$Compost, "Compost")
+data_Manure <- prepare_pie_data(MAP_all_noNA$Manure, "Manure")
+data_Usage_plastic <- prepare_pie_data(MAP_all_noNA$Usage_plastic_foil, "Usage_plastic_foil")
+data_Usage_plasticyesno <- prepare_pie_data(MAP_all_noNA$Plasticyesno, "Usage_plastic_foil_yesno")
+data_tillage <- prepare_pie_data(MAP_all_noNA$tillage, "Tillage")
+data_pesticides <- prepare_pie_data(MAP_all_noNA$pesticides, "pesticides")
+data_croprotation <- prepare_pie_data(MAP_all_noNA$crop_rotation, "Crop_rotation")
+data_irrigation <- prepare_pie_data(MAP_all_noNA$Irrigation, "Irrigation")
+data_irrigation_yesno <- prepare_pie_data(MAP_all_noNA$Irrigationyesno, "Irrigation_yesno")
+```
+
+
+```{r}
+# Plot with ggplot2
+Compost_pie <- ggplot(data_Compost, aes(x = "", y = Count, fill = Response)) +
+  geom_bar(stat = "identity", width = 1) +
+  geom_text(aes(label = Count), color = "white", size = 4, position = position_stack(vjust = 0.5)) +
+  coord_polar(theta = "y") +
+  labs(title = "Compost", x = NULL, y = NULL) +
+  theme_void()
+Compost_pie
+```
+Total = 197
+```{r}
+Manure_pie <- ggplot(data_Manure, aes(x = "", y = Count, fill = Response)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = Count), color = "white", size = 4, position = position_stack(vjust = 0.5)) +
+  labs(title = "Manure", x = NULL, y = NULL) +
+  theme_void() 
+Manure_pie
+```
+
+ Total = 197
+```{r}
+Irrigation_pie <- ggplot(data_irrigation, aes(x = "", y = Count, fill = Response)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = Count), color = "white", size = 4, position = position_stack(vjust = 0.5)) +
+  labs(title = "Irrigation", x = NULL, y = NULL) +
+  theme_void()
+
+Irrigation_pie
+```
+
+```{r}
+Plastic_pie <- ggplot(data_Usage_plastic, aes(x = "", y = Count, fill = Response)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = Count), color = "white", size = 4, position = position_stack(vjust = 0.5)) +
+  labs(title = "Usage of plastic foil", x = NULL, y = NULL) +
+  theme_void()
+Plastic_pie
+```
+
+```{r}
+Plastic_pie_yesno <- ggplot(data_Usage_plasticyesno, aes(x = "", y = Count, fill = Response)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = Count), color = "white", size = 4, position = position_stack(vjust = 0.5)) +
+  labs(title = "Usage of plastic foil", x = NULL, y = NULL) +
+  theme_void()
+Plastic_pie_yesno
+```
+
+```{r}
+Pesticides_pie <- ggplot(data_pesticides, aes(x = "", y = Count, fill = Response)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = Count), color = "white", size = 4, position = position_stack(vjust = 0.5)) +
+  labs(title = "Pesticides", x = NULL, y = NULL) +
+  theme_void()
+Pesticides_pie 
+```
+
+```{r}
+Tillage_pie <- ggplot(data_tillage, aes(x = "", y = Count, fill = Response)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = Count), color = "white", size = 4, position = position_stack(vjust = 0.5)) +
+  labs(title = "Tillage", x = NULL, y = NULL) +
+  theme_void()
+Tillage_pie
+```
+
+```{r}
+croprotation_pie <- ggplot(data_croprotation, aes(x = "", y = Count, fill = Response)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = Count), color = "white", size = 4, position = position_stack(vjust = 0.5)) +
+  labs(title = "Crop rotation", x = NULL, y = NULL) +
+  theme_void()
+croprotation_pie
+```
+
+```{r}
+Irrigation_yesno_pie <- ggplot(data_irrigation_yesno, aes(x = "", y = Count, fill = Response)) +
+  geom_bar(stat = "identity", width = 1) +
+  geom_text(aes(label = Count), 
+            color = "white", 
+            size = 4,
+            position = position_stack(vjust = 0.5)) +
+  coord_polar(theta = "y") +
+  labs(title = "Irrigation_yesno", x = NULL, y = NULL) +
+  theme_void()
+Irrigation_yesno_pie
+```
+Total = 197
+
+```{r}
+plot_pie <- ((Manure_pie + Compost_pie + Irrigation_yesno_pie) / (Pesticides_pie + croprotation_pie + Plastic_pie_yesno) + (Tillage_pie + plot_layout(guides = 'keep'))) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+plot_pie
+
+ggsave("Plots_all_litter/plot_pie.png", width = 10, height = 12, dpi = 600)
+```
+
+
+# Negative binomiaal model field management
+To do a NB model, you need to have count data (integers). Our data are not real counts anymore as they are transformed to counts/hectare.
+
+You can do this within the model by taking the count data and adding the area in an offset. I tried it with the surface_Ha but some field are to small to use. Log(0.0004) is negative and could not be used in the model. Therefore, I tried using surface_m2. This is the model below. We see that is not a good fit as the overdispersion is 9.6788
+```{r}
+model_NB1 <- glm.nb(
+  formula = Total_plastics_count ~ (Compost + Manure + pesticides + Irrigationyesno + Plasticyesno + tillage)^2,
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100)
+  )
+
+summary(model_NB1)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB1)
+```
+With the two-way interactions, the compost:tillagePlouging gives NA, due to multicollinearity (checked with alias)
+```{r}
+model_NB <- glm.nb(
+  formula = Total_plastics_count ~ (Compost + Manure + pesticides + Irrigationyesno + Plasticyesno)^2 + tillage + tillage:Manure + tillage:pesticides + tillage:Irrigationyesno + tillage:Plasticyesno,
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100)
+  )
+
+summary(model_NB)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB)
+```
+Compost, Manure, Pesticides, irrigation and plastic usage have a p-value < 0.05. 
+ManureYes:PlasticyesnoYes
+pesticidesYes:PlasticyesnoYes
+IrrigationyesnoYes:PlasticyesnoYes
+ManureYes:tillageNon_inverted_tillage
+ManureYes:tillagePloughing
+pesticidesYes:tillageNon_inverted_tillage
+pesticidesYes:tillagePloughing
+IrrigationyesnoYes:tillageNon_inverted_tillage
+IrrigationyesnoYes:tillagePloughing
+PlasticyesnoYes:tillageNon_inverted_tillage
+PlasticyesnoYes:tillagePloughing
+
+We see an effect of the use of plastic and tillage within interaction with the other field management parameters. 
+
+```{r}
+#overdispersion check
+overdispersion <- deviance(model_NB) / df.residual(model_NB)
+print(overdispersion)
+
+#multicollinearity: see if the predictors are highly correlated
+vif(model_NB, type = 'terms')  
+
+#Used to see if you model is better than another model
+AIC(model_NB)
+
+#Shira said to use stepAIC to find the best model
+best_model <- stepAIC(model_NB, direction = "both", trace = FALSE)
+summary(best_model)
+```
+## ANOVA field management
+
+```{r}
+anova <- anova(model_NB, test = "Chisq")
+
+anova
+```
+```{r}
+confint(model_NB)
+```
+
+
+## Boxplots field management - Effect of tillage 
+Does ploughing or non-inverted tillage enhance the effect of possible sources of plastic?
+
+Tillage consist out of 6 samples with the answer no ==> we will filter those out to make the boxplots
+```{r}
+tillage_filtered <- MAP_all_noNA %>% 
+  filter(tillage %in% c("Non_inverted_tillage", "Ploughing"))
+
+#  levels = c("Non_inverted_tillage", "Ploughing"),
+#  labels = c("Non-inverted tillage", "Ploughing")
+#)
+```
+### Compost
+
+```{r}
+em_til_compost <- emmeans(model_NB, pairwise ~ tillage * Compost, adjust = "tukey")
+em_til_compost
+
+cld_til_compost <- cld(em_til_compost, Letters = letters, adjust = "tukey")
+
+cld_subset_compost <- cld_til_compost %>%
+  filter(tillage %in% c("Ploughing", "Non_inverted_tillage"))
+
+cld_subset_compost
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(tillage_filtered$log_Total_plastic, na.rm = TRUE) * 1.1
+
+#the plot
+Boxplot_Compost_tillage <- ggplot(tillage_filtered, aes(x = Compost, y = log_Total_plastic, fill = tillage)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ tillage) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  scale_y_continuous(limits = c(0,5))+
+  #geom_text(data = cld_subset_compost, aes(x = Compost, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Compost usage", y = "Log10 Plastic counts/Hectare") 
+Boxplot_Compost_tillage
+```
+
+### Manure
+```{r}
+em_til_man <- emmeans(model_NB, pairwise ~ tillage * Manure, adjust = "tukey")
+em_til_man
+
+cld_til_man <- cld(em_til_man, Letters = letters, adjust = "tukey")
+
+cld_subset_manure <- cld_til_man %>%
+  filter(tillage %in% c("Ploughing", "Non_inverted_tillage"))
+
+cld_subset_manure
+
+Boxplot_Manure_tillage <- ggplot(tillage_filtered, aes(x = Manure, y = log_Total_plastic, fill = tillage)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  facet_wrap(~ tillage) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+   scale_y_continuous(limits = c(0,5))+
+  #geom_text(data = cld_subset_manure, aes(x = Manure, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Manure usage", y = "Log10 Plastic counts/Hectare") 
+Boxplot_Manure_tillage
+```
+
+### Pesticides
+```{r}
+em_til_pest <- emmeans(model_NB, pairwise ~ tillage * pesticides, adjust = "tukey")
+em_til_pest
+
+cld_em_pest <- cld(em_til_pest, Letters = letters, adjust = "tukey")
+print(cld_em_pest)
+
+cld_subset_pest <- cld_em_pest %>%
+  filter(tillage %in% c("Ploughing", "Non_inverted_tillage"))
+
+cld_subset_pest
+
+Boxplot_pest_tillage <- ggplot(tillage_filtered, aes(x = pesticides, y = log_Total_plastic, fill = tillage)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  facet_wrap(~ tillage) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+   scale_y_continuous(limits = c(0,5))+
+  #geom_text(data = cld_subset_pest, aes(x = pesticides, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Pesticides usage", y = "Log10 Plastic counts/Hectare") 
+Boxplot_pest_tillage
+```
+### Irrigation
+
+```{r}
+em_til_irr <- emmeans(model_NB, pairwise ~ tillage * Irrigationyesno, adjust = "tukey")
+em_til_irr
+
+cld_em_irr <- cld(em_til_irr, Letters = letters, adjust = "tukey")
+
+cld_subset_irr <- cld_em_irr %>%
+  filter(tillage %in% c("Ploughing", "Non_inverted_tillage"))
+
+cld_subset_irr
+
+Boxplot_irri_tillage <- ggplot(tillage_filtered, aes(x = Irrigationyesno, y = log_Total_plastic, fill = tillage)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  facet_wrap(~ tillage) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+   scale_y_continuous(limits = c(0,5))+
+  #geom_text(data = cld_subset_irr, aes(x = Irrigationyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() +
+  
+  labs(title = "",
+       x = "Irrigation", y = "Log10 Plastic counts/Hectare") 
+Boxplot_irri_tillage
+```
+
+Both the interaction between irrigation and non-intverted tillage and ploughing is significant. 
+
+### Plastic usage
+```{r}
+em_til_plastic <- emmeans(model_NB, pairwise ~ tillage * Plasticyesno, adjust = "tukey")
+
+em_til_plastic
+
+cld_em_plastic <- cld(em_til_plastic, Letters = letters, adjust = "tukey")
+print(cld_em_plastic)
+
+cld_subset_plastic <- cld_em_plastic %>%
+  filter(tillage %in% c("Ploughing", "Non_inverted_tillage"))
+
+cld_subset_plastic
+
+Boxplot_plastic_tillage <- ggplot(tillage_filtered, aes(x = Plasticyesno, y = log_Total_plastic, fill = tillage)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ tillage) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+   scale_y_continuous(limits = c(0,5))+
+  #geom_text(data = cld_subset_plastic, aes(x = Plasticyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() +
+  
+  labs(title = "",
+       x = "Plastic foil usage", y = "Log10 Plastic counts/Hectare") 
+Boxplot_plastic_tillage
+```
+A significant difference could be measured between the interaction between NIT and plastic usage (p = 0.0004)
+No significant difference could be measured between the interaction of ploughing and plastic usage.
+
+
+```{r}
+plot_boxplot <- ((Boxplot_Compost_tillage + Boxplot_Manure_tillage) / (Boxplot_pest_tillage + Boxplot_irri_tillage)/Boxplot_plastic_tillage) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_boxplot_fieldmanagement.png", width = 10, height = 12, dpi = 600)
+ggsave("Plots_all_litter/plot_boxplot_fieldmanagement.pdf", width = 10, height = 12, dpi = 600)
+```
+
+
+## Barplots field management - effect of tillage LOG
+
+```{r}
+summary_data_compost <- tillage_filtered %>%
+  group_by(tillage, Compost) %>%
+  summarise(
+    mean_plastic = mean(log_Total_plastic, na.rm = TRUE),
+    se_plastic = sd(log_Total_plastic, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_compost <- ggplot(summary_data_compost, aes(x = Compost, y = mean_plastic, fill = tillage)) +
+  facet_wrap(~ tillage) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_subset_compost, aes(x = Compost, y = 2.7, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Log10 of Mean Plastic Counts/Ha", x = "Compost Treatment") +
+  theme_publish()
+barplot_compost
+```
+
+```{r}
+summary_data_manure <- tillage_filtered %>%
+  group_by(tillage, Manure) %>%
+  summarise(
+    mean_plastic = mean(log_Total_plastic, na.rm = TRUE),
+    se_plastic = sd(log_Total_plastic, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_manure <- ggplot(summary_data_manure, aes(x = Manure, y = mean_plastic, fill = tillage)) +
+  facet_wrap(~ tillage) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_subset_manure, aes(x = Manure, y = 2.7, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Log10 of Mean Plastic Counts/Ha", x = "Manure Treatment") +
+  theme_publish()
+```
+
+```{r}
+summary_data_pest <- tillage_filtered %>%
+  group_by(tillage, pesticides) %>%
+  summarise(
+    mean_plastic = mean(log_Total_plastic, na.rm = TRUE),
+    se_plastic = sd(log_Total_plastic, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_pest <- ggplot(summary_data_pest, aes(x = pesticides, y = mean_plastic, fill = tillage)) +
+  facet_wrap(~ tillage) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_subset_pest, aes(x = pesticides, y = 2.7, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Log10 of Mean Plastic Counts/Ha", x = "Pesticides Treatment") +
+  theme_publish()
+```
+```{r}
+summary_data_irr <- tillage_filtered %>%
+  group_by(tillage, Irrigationyesno) %>%
+  summarise(
+    mean_plastic = mean(log_Total_plastic, na.rm = TRUE),
+    se_plastic = sd(log_Total_plastic, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_irr <- ggplot(summary_data_irr, aes(x = Irrigationyesno, y = mean_plastic, fill = tillage)) +
+  facet_wrap(~ tillage) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_subset_irr, aes(x = Irrigationyesno, y = 2.7, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Log10 of Mean Plastic Counts/Ha", x = "Usage of Irrigation") +
+  theme_publish()
+```
+```{r}
+summary_data_plastic <- tillage_filtered %>%
+  group_by(tillage, Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(log_Total_plastic, na.rm = TRUE),
+    se_plastic = sd(log_Total_plastic, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_plastic <- ggplot(summary_data_plastic, aes(x = Plasticyesno, y = mean_plastic, fill = tillage)) +
+  facet_wrap(~ tillage) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_subset_plastic, aes(x = Plasticyesno, y = 3, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Log10 of Mean Plastic Counts/Ha", x = "Usage of plastic") +
+  theme_publish()
+
+barplot_plastic
+```
+```{r}
+plot_barplot <- ((barplot_compost + barplot_manure) / (barplot_pest + barplot_irr)/barplot_plastic) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("plot_barplot_fieldmanagement.pdf", width = 10, height = 12, dpi = 600)
+```
+
+## Barplots field management - effect of tillage
+
+### Compost
+
+```{r}
+summary_data_compost <- tillage_filtered %>%
+  group_by(tillage, Compost) %>%
+  summarise(
+    mean_plastic = mean(Total_plastics, na.rm = TRUE),
+    se_plastic = sd(Total_plastics, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_compost <- ggplot(summary_data_compost, aes(x = Compost, y = mean_plastic, fill = tillage)) +
+  facet_wrap(~ tillage) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  #geom_text(data = cld_subset_compost, aes(x = Compost, y = 7500, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean Plastic Counts/Ha", x = "Compost Treatment") +
+  theme_publish()
+barplot_compost
+```
+### Manure
+```{r}
+summary_data_manure <- tillage_filtered %>%
+  group_by(tillage, Manure) %>%
+  summarise(
+    mean_plastic = mean(Total_plastics, na.rm = TRUE),
+    se_plastic = sd(Total_plastics, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_manure <- ggplot(summary_data_manure, aes(x = Manure, y = mean_plastic, fill = tillage)) +
+  facet_wrap(~ tillage) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  #geom_text(data = cld_subset_manure, aes(x = Manure, y = 1550, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean Plastic Counts/Ha", x = "Manure Treatment") +
+  theme_publish()
+barplot_manure
+```
+### Pesticides
+
+```{r}
+summary_data_pest <- tillage_filtered %>%
+  group_by(tillage, pesticides) %>%
+  summarise(
+    mean_plastic = mean(Total_plastics, na.rm = TRUE),
+    se_plastic = sd(Total_plastics, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_pest <- ggplot(summary_data_pest, aes(x = pesticides, y = mean_plastic, fill = tillage)) +
+  facet_wrap(~ tillage) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  #geom_text(data = cld_subset_pest, aes(x = pesticides, y = 1500, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean Plastic Counts/Ha", x = "Pesticides Treatment") +
+  theme_publish()
+barplot_pest
+```
+
+### Irrigation
+```{r}
+summary_data_irr <- tillage_filtered %>%
+  group_by(tillage, Irrigationyesno) %>%
+  summarise(
+    mean_plastic = mean(Total_plastics, na.rm = TRUE),
+    se_plastic = sd(Total_plastics, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_irr <- ggplot(summary_data_irr, aes(x = Irrigationyesno, y = mean_plastic, fill = tillage)) +
+  facet_wrap(~ tillage) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  #geom_text(data = cld_subset_irr, aes(x = Irrigationyesno, y = 15000, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean Plastic Counts/Ha", x = "Usage of Irrigation") +
+  theme_publish()
+barplot_irr
+```
+
+### Plastic usage
+```{r}
+summary_data_plastic <- tillage_filtered %>%
+  group_by(tillage, Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(Total_plastics, na.rm = TRUE),
+    se_plastic = sd(Total_plastics, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_plastic <- ggplot(summary_data_plastic, aes(x = Plasticyesno, y = mean_plastic, fill = tillage)) +
+  facet_wrap(~ tillage) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  #geom_text(data = cld_subset_plastic, aes(x = Plasticyesno, y = 3000, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean Plastic Counts/Ha", x = "Usage of plastic") +
+  theme_publish()
+
+barplot_plastic
+```
+
+
+```{r}
+plot_barplot <- ((barplot_compost + barplot_manure) / (barplot_pest + barplot_irr)/barplot_plastic) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_barplot_fieldmanagement_withoutlog.png", width = 10, height = 12, dpi = 600)
+```
+
+
+# Plastic usage with pesticides
+## Boxplot
+```{r}
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y_plastic <- max(MAP_all_noNA$log_Total_plastic, na.rm = TRUE) * 1.1
+```
+
+
+```{r}
+em_plastic_pest <- emmeans(model_NB, pairwise ~ Plasticyesno * pesticides, adjust = "sidak")
+em_plastic_pest
+
+cld_em_pestplastic <- cld(em_plastic_pest, Letters = letters, adjust = "sidak")
+print(cld_em_pestplastic)
+
+Boxplot_pest_plastic <- ggplot(MAP_all_noNA, aes(x = pesticides, y = log_Total_plastic, fill = Plasticyesno)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  facet_wrap(~ Plasticyesno,
+             labeller = labeller(Plasticyesno = c("Yes" = "Plastic usage", 
+                                                "No" = "No Plastic usage"))) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_pestplastic, aes(x = pesticides, y = fixed_y_plastic, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Pesticides usage", y = "Log10 Plastic counts/Hectare") 
+Boxplot_pest_plastic
+```
+
+# Field management België VS Nederland.
+## Filter dataset België en Nederland
+
+```{r}
+MAP_BenN <- MAP_all_noNA %>%
+  filter(Country %in% c("Belgium", "The Netherlands"))
+
+```
+
+
+## NB model with country
+with the interaction with tillage
+```{r}
+model_NB_country <- glm.nb(
+  formula = Total_plastics_count ~ (Compost + Manure + pesticides + Irrigationyesno + Plasticyesno + Country)^2 + tillage + tillage:Manure + tillage:pesticides + tillage:Irrigationyesno + tillage:Plasticyesno,
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100)
+  )
+
+summary(model_NB_country)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_country)
+```
+
+```{r}
+#Shira said to use stepAIC to find the best model
+best_model <- stepAIC(model_NB_country, direction = "both", trace = FALSE)
+summary(best_model)
+```
+
+```{r}
+model_NB_country_1 <- glm.nb(
+  formula = Total_plastics_count ~ Compost + Manure + pesticides + 
+    Irrigationyesno + Plasticyesno + Country + tillage + Compost:Irrigationyesno + 
+    Compost:Plasticyesno + Compost:Country + Manure:Plasticyesno + 
+    Manure:Country + pesticides:Plasticyesno + pesticides:Country + 
+    Irrigationyesno:Plasticyesno + Irrigationyesno:Country + 
+    Manure:tillage + pesticides:tillage + Irrigationyesno:tillage + 
+    Plasticyesno:tillage + Manure:pesticides, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_country_1)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_country_1)
+```
+
+```{r}
+
+anova <- anova(model_NB_country_1, test = "Chisq")
+
+anova
+
+```
+## Country x Compost
+
+```{r}
+model_NB_country_compost <- glm.nb(
+  formula = Total_plastics_count ~ Compost * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_country_compost)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_country_compost)
+```
+
+```{r}
+em_compost_country <- emmeans(model_NB_country_compost, pairwise ~ Compost * Country, adjust = "sidak")
+em_compost_country
+
+cld_em_compost_country <- cld(em_compost_country, Letters = letters, adjust = "sidak")
+print(cld_em_compost_country)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_Total_plastic, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_compost_country <- ggplot(MAP_BenN, aes(x = Compost, y = log_Total_plastic, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_compost_country, aes(x = Compost, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_poster() + 
+  
+  labs(title = "",
+       x = "Compost usage", y = "Log10 Plastic counts/Hectare") 
+Boxplot_compost_country
+ggsave("Boxplot_compost_country.png", height = 7, width = 7, dpi = 600, bg = "transparent")
+```
+**Barplot - Log**
+```{r}
+summary_data_compost <- MAP_BenN %>%
+  group_by(Country, Compost) %>%
+  summarise(
+    mean_plastic = mean(log_Total_plastic, na.rm = TRUE),
+    se_plastic = sd(log_Total_plastic, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_compost_BenN <- ggplot(summary_data_compost, aes(x = Compost, y = mean_plastic)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_compost_country, aes(x = Compost, y = 2.7, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Log10 of Mean Plastic Counts/Ha", x = "Compost Treatment") +
+  theme_publish()
+barplot_compost_BenN
+```
+**Barplot**
+```{r}
+summary_data_compost <- MAP_BenN %>%
+  group_by(Country, Compost) %>%
+  summarise(
+    mean_plastic = mean(Total_plastics, na.rm = TRUE),
+    se_plastic = sd(Total_plastics, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_compost_BenN <- ggplot(summary_data_compost, aes(x = Compost, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_compost_country, aes(x = Compost, y = 2000, label = .group), inherit.aes = FALSE, fontface = "bold") +
+   #theme(
+  #  strip.text = element_text(size = 15)   # <-- facet header size) +
+  #scale_fill_manual(values = c("Belgium" = "#cc605b", "The Netherlands"  = "#cc605b"))+
+
+  labs(y = "Mean Plastic Counts/Ha", x = "Compost Treatment") +
+  theme_publish()
+barplot_compost_BenN
+ggsave("Plots_all_litter/barplot_compost_BenN.png", dpi = 600, height = 7, width = 10, bg = "transparent")
+```
+## Country x Manure
+```{r}
+model_NB_country_manure <- glm.nb(
+  formula = Total_plastics_count ~ Manure * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_country_manure)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_country_manure)
+```
+```{r}
+em_manure_country <- emmeans(model_NB_country_manure, pairwise ~ Manure * Country, adjust = "sidak")
+em_manure_country
+
+cld_em_manure_country <- cld(em_manure_country, Letters = letters, adjust = "sidak")
+print(cld_em_manure_country)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_Total_plastic, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_manure_country <- ggplot(MAP_BenN, aes(x = Manure, y = log_Total_plastic, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_manure_country, aes(x = Manure, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Manure usage", y = "Log10 Plastic counts/Hectare") 
+Boxplot_manure_country
+```
+**Barplot - Log**
+```{r}
+summary_data_Manure <- MAP_BenN %>%
+  group_by(Country, Manure) %>%
+  summarise(
+    mean_plastic = mean(log_Total_plastic, na.rm = TRUE),
+    se_plastic = sd(log_Total_plastic, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_Manure_BenN <- ggplot(summary_data_Manure, aes(x = Manure, y = mean_plastic)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_manure_country, aes(x = Manure, y = 2.7, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Log10 of Mean Plastic Counts/Ha", x = "Manure Treatment") +
+  theme_publish()
+barplot_Manure_BenN
+```
+
+
+**Barplot**
+
+```{r}
+summary_data_Manure <- MAP_BenN %>%
+  group_by(Country, Manure) %>%
+  summarise(
+    mean_plastic = mean(Total_plastics, na.rm = TRUE),
+    se_plastic = sd(Total_plastics, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_Manure_BenN <- ggplot(summary_data_Manure, aes(x = Manure, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_manure_country, aes(x = Manure, y = 2000, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean Plastic Counts/Ha", x = "Manure Treatment") +
+  theme_publish()
+barplot_Manure_BenN
+```
+
+## Country x Irrigation
+```{r}
+model_NB_country_irri <- glm.nb(
+  formula = Total_plastics_count ~ Irrigationyesno * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_country_irri)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_country_irri)
+```
+
+```{r}
+em_irri_country <- emmeans(model_NB_country_irri, pairwise ~ Irrigationyesno * Country, adjust = "sidak")
+em_irri_country
+
+cld_em_irri_country <- cld(em_irri_country, Letters = letters, adjust = "sidak")
+print(cld_em_irri_country)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_Total_plastic, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_irri_country <- ggplot(MAP_BenN, aes(x = Irrigationyesno, y = log_Total_plastic, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_irri_country, aes(x = Irrigationyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Irrigation usage", y = "Log10 Plastic counts/Hectare") 
+Boxplot_irri_country
+```
+**Barplot - Log**
+
+```{r}
+summary_data_irri <- MAP_BenN %>%
+  group_by(Country, Irrigationyesno) %>%
+  summarise(
+    mean_plastic = mean(log_Total_plastic, na.rm = TRUE),
+    se_plastic = sd(log_Total_plastic, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_Irri_BenN <- ggplot(summary_data_irri, aes(x = Irrigationyesno, y = mean_plastic)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_irri_country, aes(x = Irrigationyesno, y = 2.7, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Log10 of Mean Plastic Counts/Ha", x = "Irrigation Treatment") +
+  theme_publish()
+barplot_Irri_BenN
+```
+**Barplot**
+```{r}
+summary_data_irri <- MAP_BenN %>%
+  group_by(Country, Irrigationyesno) %>%
+  summarise(
+    mean_plastic = mean(Total_plastics, na.rm = TRUE),
+    se_plastic = sd(Total_plastics, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_Irri_BenN <- ggplot(summary_data_irri, aes(x = Irrigationyesno, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_irri_country, aes(x = Irrigationyesno, y = 1500, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean Plastic Counts/Ha", x = "Irrigation Treatment") +
+  theme_publish()
+barplot_Irri_BenN
+```
+
+## Country x Pesticides
+```{r}
+model_NB_country_pest <- glm.nb(
+  formula = Total_plastics_count ~ pesticides * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_country_pest)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_country_pest)
+```
+
+```{r}
+em_pest_country <- emmeans(model_NB_country_pest, pairwise ~ pesticides * Country, adjust = "sidak")
+em_pest_country
+
+cld_em_pest_country <- cld(em_pest_country, Letters = letters, adjust = "sidak")
+print(cld_em_pest_country)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_Total_plastic, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_pest_country <- ggplot(MAP_BenN, aes(x = pesticides, y = log_Total_plastic, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_pest_country, aes(x = pesticides, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Pesticides usage", y = "Log10 Plastic counts/Hectare") 
+Boxplot_pest_country
+```
+**Barplot - Log**
+
+```{r}
+summary_data_Pest <- MAP_BenN %>%
+  group_by(Country, pesticides) %>%
+  summarise(
+    mean_plastic = mean(log_Total_plastic, na.rm = TRUE),
+    se_plastic = sd(log_Total_plastic, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_Pest_BenN <- ggplot(summary_data_Pest, aes(x = pesticides, y = mean_plastic)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_pest_country, aes(x = pesticides, y = 2.7, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Log10 of Mean Plastic Counts/Ha", x = "Pesticides Treatment") +
+  theme_publish()
+barplot_Pest_BenN
+```
+**Barplot**
+```{r}
+summary_data_Pest <- MAP_BenN %>%
+  group_by(Country, pesticides) %>%
+  summarise(
+    mean_plastic = mean(Total_plastics, na.rm = TRUE),
+    se_plastic = sd(Total_plastics, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_Pest_BenN <- ggplot(summary_data_Pest, aes(x = pesticides, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_pest_country, aes(x = pesticides, y = 2000, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean Plastic Counts/Ha", x = "Pesticides Treatment") +
+  theme_publish()
+barplot_Pest_BenN
+```
+
+## Country x Plastic usage
+```{r}
+model_NB_country_plastic <- glm.nb(
+  formula = Total_plastics_count ~ Plasticyesno * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_country_plastic)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_country_plastic)
+```
+
+```{r}
+em_plastic_country <- emmeans(model_NB_country_plastic, pairwise ~ Plasticyesno * Country, adjust = "sidak")
+em_plastic_country
+
+cld_em_plastic_country <- cld(em_plastic_country, Letters = letters, adjust = "sidak")
+print(cld_em_plastic_country)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_Total_plastic, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_plastic_country <- ggplot(MAP_BenN, aes(x = Plasticyesno, y = log_Total_plastic, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_plastic_country, aes(x = Plasticyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Plastic usage", y = "Log10 Plastic counts/Hectare") 
+Boxplot_plastic_country
+```
+**Barplot - Log**
+
+```{r}
+summary_data_Plastic <- MAP_BenN %>%
+  group_by(Country, Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(log_Total_plastic, na.rm = TRUE),
+    se_plastic = sd(log_Total_plastic, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_Plastic_BenN <- ggplot(summary_data_Plastic, aes(x = Plasticyesno, y = mean_plastic)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), fill = "#cc605b") +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_plastic_country, aes(x = Plasticyesno, y = 3.1, label = .group), inherit.aes = FALSE, fontface = "bold", size = 8) +
+  theme(
+    strip.text = element_text(size = 20)) +  # <-- facet header size
+  labs(y = "Log10 of Mean Plastic Counts/Ha", x = "Plastic Treatment") +
+  theme_poster()
+barplot_Plastic_BenN
+
+
+```
+**Barplot poster**
+```{r}
+summary_data_Pest <- MAP_BenN %>%
+  group_by(Country, Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(Total_plastics, na.rm = TRUE),
+    se_plastic = sd(Total_plastics, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_Plastic_BenN <- ggplot(summary_data_Pest, aes(x = Plasticyesno, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_plastic_country, aes(x = Plasticyesno, y = 4000, label = .group), inherit.aes = FALSE, fontface = "bold", size = 8) +
+  labs(y = "Mean Plastic Counts/Ha", x = "Plastic Treatment") +
+  theme(
+    strip.text = element_text(size = 20)) +  # <-- facet header size
+  scale_fill_manual(values = c("Belgium" = "#cc605b",
+                             "The Netherlands"  = "#cc605b")) +
+  theme_poster()
+barplot_Plastic_BenN
+ggsave("barplot_Plastic_BenN.png", dpi = 600, height = 7, width = 10, bg = "transparent")
+```
+```{r}
+summary_data_Pest <- MAP_BenN %>%
+  group_by(Country, Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(Total_plastics, na.rm = TRUE),
+    se_plastic = sd(Total_plastics, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_Plastic_BenN <- ggplot(summary_data_Pest, aes(x = Plasticyesno, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_plastic_country, aes(x = Plasticyesno, y = 4000, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean Plastic Counts/Ha", x = "Plastic Treatment") +
+  
+  theme_publish()
+barplot_Plastic_BenN
+```
+
+##ggsave Fieldmanagement x country
+```{r}
+plot_barplot_fieldcountry <- ((barplot_compost_BenN + barplot_Manure_BenN) / (barplot_Irri_BenN + barplot_Pest_BenN)/barplot_Plastic_BenN) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_barplot_fieldmanagementcountry_withoutlog.png", width = 10, height = 12, dpi = 600)
+```
+
+## Summary Belgium vs The Netherlands
+
+```{r}
+summary <- MAP_BenN %>%
+  group_by(Country, Compost) %>% #onderverdelen in groepen, je kan hier ook meerder aan meegeven zoals bv compost
+  dplyr::summarize(Mean = mean(Total_plastics, na.rm = TRUE),
+             n = n(),
+             SD = sd(Total_plastics,na.rm = TRUE),
+             SE = sd(Total_plastics, na.rm = TRUE)/sqrt(n),
+             CI.lower = Mean - 2*SE,
+             CI.upper = Mean + 2*SE) #%>%
+  #formattable
+ 
+summary
+```
+
+
+```{r}
+summary <- MAP_BenN %>%
+  group_by(Country, Manure) %>% #onderverdelen in groepen, je kan hier ook meerder aan meegeven zoals bv compost
+  dplyr::summarize(Mean = mean(Total_plastics, na.rm = TRUE),
+             n = n(),
+             SD = sd(Total_plastics,na.rm = TRUE),
+             SE = sd(Total_plastics, na.rm = TRUE)/sqrt(n),
+             CI.lower = Mean - 2*SE,
+             CI.upper = Mean + 2*SE) #%>%
+  #formattable
+ 
+summary
+```
+
+# A2 / A17 / A21 /A5/ A6 - combi country
+We want to know if certain categories are more prevalent with a certain field management (Compost, Manure, pesticides, Irrigation)
+A2 sheets
+A17 hard plastics
+A21 stickers
+A5 and A6 touwen 
+
+columns to integers
+```{r}
+MAP_BenN[2:53] <- lapply(MAP_BenN[2:53], as.integer)
+MAP_BenN[109] <- lapply(MAP_BenN[109], as.integer)
+
+```
+
+## Compost
+### A2 - combi compost
+```{r}
+model_NB_compost_A2 <- glm.nb(
+  formula = A2 ~ Compost * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_compost_A2)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_compost_A2)
+```
+```{r}
+em_A2_country <- emmeans(model_NB_compost_A2, pairwise ~ Compost  * Country, adjust = "sidak")
+em_A2_country
+
+cld_em_A2_country <- cld(em_A2_country, Letters = letters, adjust = "sidak")
+print(cld_em_A2_country)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A2, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A2_compost <- ggplot(MAP_BenN, aes(x = Compost, y = log_A2, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A2_country, aes(x = Compost, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Compost usage", y = "A2 counts/Hectare") 
+Boxplot_A2_compost
+```
+```{r}
+summary_data_A2 <- MAP_BenN %>%
+  group_by(Country, Compost) %>%
+  summarise(
+    mean_plastic = mean(A2, na.rm = TRUE),
+    se_plastic = sd(A2, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A2_BenN <- ggplot(summary_data_A2, aes(x = Compost, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A2_country, aes(x = Compost, y = 1250, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean sheets (A2) Counts/Ha", x = "Compost Treatment") +
+  theme_publish()
+barplot_A2_BenN
+```
+
+### A17 - combi compost
+
+```{r}
+model_NB_compost_A17 <- glm.nb(
+  formula = A17 ~ Compost * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_compost_A17)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_compost_A17)
+```
+
+```{r}
+em_A17_country <- emmeans(model_NB_compost_A17, pairwise ~ Compost  * Country, adjust = "sidak")
+em_A17_country
+
+cld_em_A17_country <- cld(em_A17_country, Letters = letters, adjust = "sidak")
+print(cld_em_A17_country)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A17, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A17_compost <- ggplot(MAP_BenN, aes(x = Compost, y = log_A17, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A17_country, aes(x = Compost, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Compost usage", y = "A17 counts/Hectare") 
+Boxplot_A17_compost
+```
+```{r}
+summary_data_A17 <- MAP_BenN %>%
+  group_by(Country, Compost) %>%
+  summarise(
+    mean_plastic = mean(A17, na.rm = TRUE),
+    se_plastic = sd(A17, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A17_BenN <- ggplot(summary_data_A17, aes(x = Compost, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A17_country, aes(x = Compost, y = 600, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean hard plastics (A17) Counts/Ha", x = "Compost Treatment") +
+  theme_publish()
+barplot_A17_BenN
+```
+
+### A21 - combi compost
+```{r}
+model_NB_compost_A21 <- glm.nb(
+  formula = A21 ~ Compost * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_compost_A21)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_compost_A21)
+```
+
+```{r}
+em_A21_country <- emmeans(model_NB_compost_A21, pairwise ~ Compost  * Country, adjust = "sidak")
+em_A21_country
+
+cld_em_A21_country <- cld(em_A21_country, Letters = letters, adjust = "sidak")
+print(cld_em_A21_country)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A21, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A21_compost <- ggplot(MAP_BenN, aes(x = Compost, y = log_A21, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A21_country, aes(x = Compost, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Compost usage", y = "Log10 A21 counts/Hectare") 
+Boxplot_A21_compost
+```
+```{r}
+summary_data_A21 <- MAP_BenN %>%
+  group_by(Country, Compost) %>%
+  summarise(
+    mean_plastic = mean(A21, na.rm = TRUE),
+    se_plastic = sd(A21, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A21_BenN <- ggplot(summary_data_A21, aes(x = Compost, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A21_country, aes(x = Compost, y = 30, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean plastic stickers (A21) Counts/Ha", x = "Compost Treatment") +
+  theme_publish()
+barplot_A21_BenN
+```
+
+
+### A5 and A6 - combi compost
+```{r}
+model_NB_compost_A5A6 <- glm.nb(
+  formula = A5_A6 ~ Compost * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_compost_A5A6)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_compost_A5A6)
+```
+
+```{r}
+em_A5A6_country <- emmeans(model_NB_compost_A5A6, pairwise ~ Compost  * Country, adjust = "sidak")
+em_A5A6_country
+
+cld_em_A5A6_country <- cld(em_A5A6_country, Letters = letters, adjust = "sidak")
+print(cld_em_A5A6_country)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A5A6, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A5A6_compost <- ggplot(MAP_BenN, aes(x = Compost, y = log_A5A6, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A5A6_country, aes(x = Compost, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Compost usage", y = "Log10 fibers (A5_A6) counts/Hectare") 
+Boxplot_A5A6_compost
+```
+```{r}
+summary_data_A5A6 <- MAP_BenN %>%
+  group_by(Country, Compost) %>%
+  summarise(
+    mean_plastic = mean(A5_A6, na.rm = TRUE),
+    se_plastic = sd(A5_A6, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A5A6_BenN <- ggplot(summary_data_A5A6, aes(x = Compost, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A5A6_country, aes(x = Compost, y = 40, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean fibers (A5_A6) Counts/Ha", x = "Compost Treatment") +
+  theme_publish()
+barplot_A5A6_BenN
+```
+
+## Manure
+### A2 - combi manure
+```{r}
+model_NB_manure_A2 <- glm.nb(
+  formula = A2 ~ Manure * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_manure_A2)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_manure_A2)
+```
+```{r}
+em_A2_country_manure <- emmeans(model_NB_manure_A2, pairwise ~ Manure  * Country, adjust = "sidak")
+em_A2_country_manure
+
+cld_em_A2_country_manure <- cld(em_A2_country_manure, Letters = letters, adjust = "sidak")
+print(cld_em_A2_country_manure)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A2, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A2_manure <- ggplot(MAP_BenN, aes(x = Manure, y = log_A2, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A2_country_manure, aes(x = Manure, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Manure usage", y = "A2 counts/Hectare") 
+Boxplot_A2_manure
+```
+```{r}
+summary_data_A2 <- MAP_BenN %>%
+  group_by(Country, Manure) %>%
+  summarise(
+    mean_plastic = mean(A2, na.rm = TRUE),
+    se_plastic = sd(A2, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A2_BenN_manure <- ggplot(summary_data_A2, aes(x = Manure, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A2_country_manure, aes(x = Manure, y = 1250, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean sheets (A2) Counts/Ha", x = "Manure Treatment") +
+  theme_publish()
+barplot_A2_BenN_manure
+```
+
+### A17 - combi Manure
+
+```{r}
+model_NB_Manure_A17 <- glm.nb(
+  formula = A17 ~ Manure * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_Manure_A17)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_Manure_A17)
+```
+
+```{r}
+em_A17_country_manure <- emmeans(model_NB_Manure_A17, pairwise ~ Manure  * Country, adjust = "sidak")
+em_A17_country_manure
+
+cld_em_A17_country_manure <- cld(em_A17_country_manure, Letters = letters, adjust = "sidak")
+print(cld_em_A17_country_manure)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A17, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A17_manure <- ggplot(MAP_BenN, aes(x = Manure, y = log_A17, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A17_country_manure, aes(x = Manure, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Manure usage", y = "A17 counts/Hectare") 
+Boxplot_A17_manure
+```
+```{r}
+summary_data_A17 <- MAP_BenN %>%
+  group_by(Country, Manure) %>%
+  summarise(
+    mean_plastic = mean(A17, na.rm = TRUE),
+    se_plastic = sd(A17, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A17_BenN_manure <- ggplot(summary_data_A17, aes(x = Manure, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A17_country_manure, aes(x = Manure, y = 600, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean hard plastcis (A17) Counts/Ha", x = "Manure Treatment") +
+  theme_publish()
+barplot_A17_BenN_manure
+```
+
+### A21 - combi Manure
+```{r}
+model_NB_Manure_A21 <- glm.nb(
+  formula = A21 ~ Manure * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_Manure_A21)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_Manure_A21)
+```
+
+```{r}
+em_A21_country_manure <- emmeans(model_NB_Manure_A21, pairwise ~ Manure  * Country, adjust = "sidak")
+em_A21_country_manure
+
+cld_em_A21_country_manure <- cld(em_A21_country_manure, Letters = letters, adjust = "sidak")
+print(cld_em_A21_country_manure)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A21, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A21_Manure <- ggplot(MAP_BenN, aes(x = Manure, y = log_A21, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A21_country_manure, aes(x = Manure, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Manure usage", y = "Log10 A21 counts/Hectare") 
+Boxplot_A21_Manure
+```
+```{r}
+summary_data_A21 <- MAP_BenN %>%
+  group_by(Country, Manure) %>%
+  summarise(
+    mean_plastic = mean(A21, na.rm = TRUE),
+    se_plastic = sd(A21, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A21_BenN_manure <- ggplot(summary_data_A21, aes(x = Manure, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A21_country_manure, aes(x = Manure, y = 30, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean plastic stickers (A21) Counts/Ha", x = "Manure Treatment") +
+  theme_publish()
+barplot_A21_BenN_manure
+```
+
+
+### A5 and A6 - combi Manure
+```{r}
+model_NB_Manure_A5A6 <- glm.nb(
+  formula = A5_A6 ~ Manure * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_Manure_A5A6)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_Manure_A5A6)
+```
+
+```{r}
+em_A5A6_country_Manure <- emmeans(model_NB_Manure_A5A6, pairwise ~ Manure  * Country, adjust = "sidak")
+em_A5A6_country_Manure
+
+cld_em_A5A6_country_Manure <- cld(em_A5A6_country_Manure, Letters = letters, adjust = "sidak")
+print(cld_em_A5A6_country_Manure)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A5A6, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A5A6_Manure <- ggplot(MAP_BenN, aes(x = Manure, y = log_A5A6, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A5A6_country_Manure, aes(x = Manure, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Manure usage", y = "Log10 fibers (A5_A6) counts/Hectare") 
+Boxplot_A5A6_Manure
+```
+```{r}
+summary_data_A5A6 <- MAP_BenN %>%
+  group_by(Country, Manure) %>%
+  summarise(
+    mean_plastic = mean(A5_A6, na.rm = TRUE),
+    se_plastic = sd(A5_A6, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A5A6_BenN_Manure <- ggplot(summary_data_A5A6, aes(x = Manure, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A5A6_country_Manure, aes(x = Manure, y = 90, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean fibers (A5_A6) Counts/Ha", x = "Manure Treatment") +
+  theme_publish()
+barplot_A5A6_BenN_Manure
+```
+
+## Pesticides
+### A2 - Combi pesticides
+
+```{r}
+model_NB_pest_A2 <- glm.nb(
+  formula = A2 ~ pesticides * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_pest_A2)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_pest_A2)
+```
+```{r}
+em_A2_country_pest <- emmeans(model_NB_pest_A2, pairwise ~ pesticides  * Country, adjust = "sidak")
+em_A2_country_pest
+
+cld_em_A2_country_pest <- cld(em_A2_country_pest, Letters = letters, adjust = "sidak")
+print(cld_em_A2_country_pest)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A2, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A2_pest <- ggplot(MAP_BenN, aes(x = pesticides, y = log_A2, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A2_country_pest, aes(x = pesticides, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Pesticides usage", y = "A2 counts/Hectare") 
+Boxplot_A2_pest
+```
+```{r}
+summary_data_A2 <- MAP_BenN %>%
+  group_by(Country, pesticides) %>%
+  summarise(
+    mean_plastic = mean(A2, na.rm = TRUE),
+    se_plastic = sd(A2, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A2_BenN_pest <- ggplot(summary_data_A2, aes(x = pesticides, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A2_country_pest, aes(x = pesticides, y = 1250, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean sheets (A2) Counts/Ha", x = "Pesticides Treatment") +
+  theme_publish()
+barplot_A2_BenN_pest
+```
+
+### A17 - combi Pesticides
+
+```{r}
+model_NB_pest_A17 <- glm.nb(
+  formula = A17 ~ pesticides * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_pest_A17)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_pest_A17)
+```
+
+```{r}
+em_A17_country_pest <- emmeans(model_NB_pest_A17, pairwise ~ pesticides  * Country, adjust = "sidak")
+em_A17_country_pest
+
+cld_em_A17_country_pest <- cld(em_A17_country_pest, Letters = letters, adjust = "sidak")
+print(cld_em_A17_country_pest)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A17, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A17_pest <- ggplot(MAP_BenN, aes(x = pesticides, y = log_A17, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A17_country_pest, aes(x = pesticides, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Pesticides usage", y = "A17 counts/Hectare") 
+Boxplot_A17_pest
+```
+```{r}
+summary_data_A17 <- MAP_BenN %>%
+  group_by(Country, pesticides) %>%
+  summarise(
+    mean_plastic = mean(A17, na.rm = TRUE),
+    se_plastic = sd(A17, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A17_BenN_pest <- ggplot(summary_data_A17, aes(x = pesticides, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A17_country_pest, aes(x = pesticides, y = 600, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean hard plsatics (A17) Counts/Ha", x = "Pesticides Treatment") +
+  theme_publish()
+barplot_A17_BenN_pest
+```
+
+### A21 - combi pesticides
+```{r}
+model_NB_pest_A21 <- glm.nb(
+  formula = A21 ~ pesticides * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_pest_A21)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_pest_A21)
+```
+
+```{r}
+em_A21_country_pest <- emmeans(model_NB_pest_A21, pairwise ~ pesticides  * Country, adjust = "sidak")
+em_A21_country_pest
+
+cld_em_A21_country_pest <- cld(em_A21_country_pest, Letters = letters, adjust = "sidak")
+print(cld_em_A21_country_pest)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A21, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A21_pest <- ggplot(MAP_BenN, aes(x = pesticides, y = log_A21, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A21_country_pest, aes(x = pesticides, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Pesticides usage", y = "Log10 A21 counts/Hectare") 
+Boxplot_A21_pest
+```
+```{r}
+summary_data_A21 <- MAP_BenN %>%
+  group_by(Country, pesticides) %>%
+  summarise(
+    mean_plastic = mean(A21, na.rm = TRUE),
+    se_plastic = sd(A21, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A21_BenN_pest <- ggplot(summary_data_A21, aes(x = pesticides, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A21_country_pest, aes(x = pesticides, y = 40, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean plastic stickers (A21) Counts/Ha", x = "Pesticides Treatment") +
+  theme_publish()
+barplot_A21_BenN_pest
+```
+
+
+### A5 and A6 - combi Pesticides
+```{r}
+model_NB_pest_A5A6 <- glm.nb(
+  formula = A5_A6 ~ pesticides * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_pest_A5A6)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_pest_A5A6)
+```
+
+```{r}
+em_A5A6_country_pest <- emmeans(model_NB_pest_A5A6, pairwise ~ pesticides  * Country, adjust = "sidak")
+em_A5A6_country_pest
+
+cld_em_A5A6_country_pest <- cld(em_A5A6_country_pest, Letters = letters, adjust = "sidak")
+print(cld_em_A5A6_country_pest)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A5A6, na.rm = TRUE) * 1.1
+#the plot
+
+Boxplot_A5A6_pest <- ggplot(MAP_BenN, aes(x = pesticides, y = log_A5A6, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A5A6_country_pest, aes(x = pesticides, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Pesticides usage", y = "Log10 fibers (A5_A6) counts/Hectare") 
+Boxplot_A5A6_pest
+```
+```{r}
+summary_data_A5A6 <- MAP_BenN %>%
+  group_by(Country, pesticides) %>%
+  summarise(
+    mean_plastic = mean(A5_A6, na.rm = TRUE),
+    se_plastic = sd(A5_A6, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A5A6_BenN_pest <- ggplot(summary_data_A5A6, aes(x = pesticides, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A5A6_country_pest, aes(x = pesticides, y = 120, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean fibers (A5_A6) Counts/Ha", x = "Pesticides Treatment") +
+  theme_publish()
+barplot_A5A6_BenN_pest
+```
+## Irrigation
+### A2 - Combi irrigation
+
+```{r}
+model_NB_irri_A2 <- glm.nb(
+  formula = A2 ~ Irrigationyesno * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_irri_A2)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_irri_A2)
+```
+```{r}
+em_A2_country_irri <- emmeans(model_NB_irri_A2, pairwise ~ Irrigationyesno  * Country, adjust = "sidak")
+em_A2_country_irri
+
+cld_em_A2_country_irri <- cld(em_A2_country_irri, Letters = letters, adjust = "sidak")
+print(cld_em_A2_country_irri)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A2, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A2_irri <- ggplot(MAP_BenN, aes(x = Irrigationyesno, y = log_A2, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A2_country_irri, aes(x = Irrigationyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Irrigation usage", y = "A2 counts/Hectare") 
+Boxplot_A2_irri
+```
+```{r}
+summary_data_A2 <- MAP_BenN %>%
+  group_by(Country, Irrigationyesno) %>%
+  summarise(
+    mean_plastic = mean(A2, na.rm = TRUE),
+    se_plastic = sd(A2, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A2_BenN_irri <- ggplot(summary_data_A2, aes(x = Irrigationyesno, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A2_country_irri, aes(x = Irrigationyesno, y = 1250, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean sheets (A2) Counts/Ha", x = "Irrigation Treatment") +
+  theme_publish()
+barplot_A2_BenN_irri
+```
+
+### A17 - combi irrigation
+
+```{r}
+model_NB_irri_A17 <- glm.nb(
+  formula = A17 ~ Irrigationyesno * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_irri_A17)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_irri_A17)
+```
+
+```{r}
+em_A17_country_irri <- emmeans(model_NB_irri_A17, pairwise ~ Irrigationyesno  * Country, adjust = "sidak")
+em_A17_country_irri
+
+cld_em_A17_country_irri <- cld(em_A17_country_irri, Letters = letters, adjust = "sidak")
+print(cld_em_A17_country_irri)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A17, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A17_irri <- ggplot(MAP_BenN, aes(x = Irrigationyesno, y = log_A17, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A17_country_irri, aes(x = Irrigationyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Irrigation usage", y = "A17 counts/Hectare") 
+Boxplot_A17_irri
+```
+```{r}
+summary_data_A17 <- MAP_BenN %>%
+  group_by(Country, Irrigationyesno) %>%
+  summarise(
+    mean_plastic = mean(A17, na.rm = TRUE),
+    se_plastic = sd(A17, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A17_BenN_irri <- ggplot(summary_data_A17, aes(x = Irrigationyesno, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A17_country_irri, aes(x = Irrigationyesno, y = 600, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean hard plastics (A17) Counts/Ha", x = "Irrigation Treatment") +
+  theme_publish()
+barplot_A17_BenN_irri
+```
+
+### A21 - combi irrigation
+```{r}
+model_NB_irri_A21 <- glm.nb(
+  formula = A21 ~ Irrigationyesno * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_irri_A21)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_irri_A21)
+```
+
+```{r}
+em_A21_country_irri <- emmeans(model_NB_irri_A21, pairwise ~ Irrigationyesno  * Country, adjust = "sidak")
+em_A21_country_irri
+
+em_A21_country_irri <- cld(em_A21_country_irri, Letters = letters, adjust = "sidak")
+print(em_A21_country_irri)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A21, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A21_irri <- ggplot(MAP_BenN, aes(x = Irrigationyesno, y = log_A21, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = em_A21_country_irri, aes(x = Irrigationyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Irrigation usage", y = "Log10 A21 counts/Hectare") 
+Boxplot_A21_irri
+```
+```{r}
+summary_data_A21 <- MAP_BenN %>%
+  group_by(Country, Irrigationyesno) %>%
+  summarise(
+    mean_plastic = mean(A21, na.rm = TRUE),
+    se_plastic = sd(A21, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A21_BenN_irri <- ggplot(summary_data_A21, aes(x = Irrigationyesno, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = em_A21_country_irri, aes(x = Irrigationyesno, y = 40, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean plastic stickers (A21) Counts/Ha", x = "Irrigation Treatment") +
+  theme_publish()
+barplot_A21_BenN_irri
+```
+
+
+### A5 and A6 - combi irrigation
+```{r}
+model_NB_irri_A5A6 <- glm.nb(
+  formula = A5_A6 ~ Irrigationyesno * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_irri_A5A6)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_irri_A5A6)
+```
+
+```{r}
+em_A5A6_country_irri <- emmeans(model_NB_irri_A5A6, pairwise ~ Irrigationyesno  * Country, adjust = "sidak")
+em_A5A6_country_irri
+
+cld_em_A5A6_country_irri <- cld(em_A5A6_country_irri, Letters = letters, adjust = "sidak")
+print(cld_em_A5A6_country_irri)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A5A6, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A5A6_irri <- ggplot(MAP_BenN, aes(x = Irrigationyesno, y = log_A5A6, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A5A6_country_irri, aes(x = Irrigationyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Irrigation usage", y = "Log10 fibers (A5_A6) counts/Hectare") 
+Boxplot_A5A6_irri
+```
+```{r}
+summary_data_A5A6 <- MAP_BenN %>%
+  group_by(Country, Irrigationyesno) %>%
+  summarise(
+    mean_plastic = mean(A5_A6, na.rm = TRUE),
+    se_plastic = sd(A5_A6, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A5A6_BenN_irri <- ggplot(summary_data_A5A6, aes(x = Irrigationyesno, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A5A6_country_irri, aes(x = Irrigationyesno, y = 45, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean fibers (A5_A6) Counts/Ha", x = "Irrigation Treatment") +
+  theme_publish()
+barplot_A5A6_BenN_irri
+```
+
+## Plastic usage
+
+###A2 - combi plastic
+
+```{r}
+model_NB_plastic_A2 <- glm.nb(
+  formula = A2 ~ Plasticyesno * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_plastic_A2)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_plastic_A2)
+```
+
+```{r}
+em_A2_country_plastic <- emmeans(model_NB_plastic_A2, pairwise ~ Plasticyesno  * Country, adjust = "sidak")
+em_A2_country_plastic
+
+cld_em_A2_country_plastic <- cld(em_A2_country_plastic, Letters = letters, adjust = "sidak")
+print(cld_em_A2_country_plastic)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A2, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A2_plastic <- ggplot(MAP_BenN, aes(x = Plasticyesno, y = log_A2, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A2_country_plastic, aes(x = Plasticyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Plastic usage", y = "Log10 sheets (A2) counts/Hectare") 
+Boxplot_A2_plastic
+```
+```{r}
+summary_data_A2 <- MAP_BenN %>%
+  group_by(Country, Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(A2, na.rm = TRUE),
+    se_plastic = sd(A2, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A2_BenN_plastic <- ggplot(summary_data_A2, aes(x = Plasticyesno, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A2_country_plastic, aes(x = Plasticyesno, y = 2500, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean sheets (A2) Counts/Ha", x = "Plastic Treatment") +
+  theme_publish()
+barplot_A2_BenN_plastic
+```
+
+### A17 - combi plastic
+```{r}
+model_NB_plastic_A17 <- glm.nb(
+  formula = A17 ~ Plasticyesno * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_plastic_A17)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_plastic_A17)
+```
+
+```{r}
+em_A17_country_plastic <- emmeans(model_NB_plastic_A17, pairwise ~ Plasticyesno  * Country, adjust = "sidak")
+em_A17_country_plastic
+
+cld_em_A17_country_plastic <- cld(em_A17_country_plastic, Letters = letters, adjust = "sidak")
+print(cld_em_A17_country_plastic)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A17, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A17_plastic <- ggplot(MAP_BenN, aes(x = Plasticyesno, y = log_A17, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A17_country_plastic, aes(x = Plasticyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Plastic usage", y = "Log10 hard plastics (A17) counts/Hectare") 
+Boxplot_A17_plastic
+```
+```{r}
+summary_data_A17 <- MAP_BenN %>%
+  group_by(Country, Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(A17, na.rm = TRUE),
+    se_plastic = sd(A17, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A17_BenN_plastic <- ggplot(summary_data_A17, aes(x = Plasticyesno, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A17_country_plastic, aes(x = Plasticyesno, y = 1250, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean hard plastics (A17) Counts/Ha", x = "Plastic Treatment") +
+  theme_publish()
+barplot_A17_BenN_plastic
+```
+
+### A21 - combi plastic
+```{r}
+model_NB_plastic_A21 <- glm.nb(
+  formula = A21 ~ Plasticyesno * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_plastic_A21)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_plastic_A21)
+```
+
+```{r}
+em_A21_country_plastic <- emmeans(model_NB_plastic_A21, pairwise ~ Plasticyesno  * Country, adjust = "sidak")
+em_A21_country_plastic
+
+cld_em_A21_country_plastic <- cld(em_A21_country_plastic, Letters = letters, adjust = "sidak")
+print(cld_em_A21_country_plastic)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A21, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A21_plastic <- ggplot(MAP_BenN, aes(x = Plasticyesno, y = log_A21, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A21_country_plastic, aes(x = Plasticyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Plastic usage", y = "Log10 plastic stickers (A21) counts/Hectare") 
+Boxplot_A21_plastic
+```
+```{r}
+summary_data_A21 <- MAP_BenN %>%
+  group_by(Country, Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(A21, na.rm = TRUE),
+    se_plastic = sd(A21, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A21_BenN_plastic <- ggplot(summary_data_A21, aes(x = Plasticyesno, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A21_country_plastic, aes(x = Plasticyesno, y = 30, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean plastic stickers (A21) Counts/Ha", x = "Plastic Treatment") +
+  theme_publish()
+barplot_A21_BenN_plastic
+```
+
+
+### A5_A6 - combi plastic
+
+```{r}
+model_NB_plastic_A5A6 <- glm.nb(
+  formula = A5_A6 ~ Plasticyesno * Country, 
+  offset(log(Surface_m2)), 
+  data = MAP_BenN, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_plastic_A5A6)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_plastic_A5A6)
+```
+
+```{r}
+em_A5A6_country_plastic <- emmeans(model_NB_plastic_A5A6, pairwise ~ Plasticyesno  * Country, adjust = "sidak")
+em_A5A6_country_plastic
+
+cld_em_A5A6_country_plastic <- cld(em_A5A6_country_plastic, Letters = letters, adjust = "sidak")
+print(cld_em_A5A6_country_plastic)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_BenN$log_A5A6, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A5A6_plastic <- ggplot(MAP_BenN, aes(x = Plasticyesno, y = log_A5A6, fill = Country)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  facet_wrap(~ Country) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A5A6_country_plastic, aes(x = Plasticyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Plastic usage", y = "Log10 fibers (A5_A6) counts/Hectare") 
+Boxplot_A5A6_plastic
+```
+```{r}
+summary_data_A5A6 <- MAP_BenN %>%
+  group_by(Country, Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(A5_A6, na.rm = TRUE),
+    se_plastic = sd(A5_A6, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A5A6_BenN_plastic <- ggplot(summary_data_A5A6, aes(x = Plasticyesno, y = mean_plastic, fill = Country)) +
+  facet_wrap(~ Country) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A5A6_country_plastic, aes(x = Plasticyesno, y = 150, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean fibers (A5_A6) Counts/Ha", x = "Plastic Treatment") +
+  theme_publish()
+barplot_A5A6_BenN_plastic
+```
+
+## ggsave
+### A2
+```{r}
+plot_barplot_A2 <- ((barplot_A2_BenN + barplot_A2_BenN_manure + barplot_A2_BenN_plastic) / (barplot_A2_BenN_pest + barplot_A2_BenN_irri) ) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_barplot_A2.png", width = 15, height = 12, dpi = 600)
+```
+### A17
+```{r}
+plot_barplot_A17 <- ((barplot_A17_BenN + barplot_A17_BenN_manure + barplot_A17_BenN_plastic) / (barplot_A17_BenN_pest + barplot_A17_BenN_irri) ) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_barplot_A17.png", width = 15, height = 12, dpi = 600)
+```
+### A21
+```{r}
+plot_barplot_A21 <- ((barplot_A21_BenN + barplot_A21_BenN_manure + barplot_A21_BenN_plastic) / (barplot_A21_BenN_pest + barplot_A21_BenN_irri) ) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_barplot_A21.png", width = 15, height = 12, dpi = 600)
+```
+
+### A5A6
+
+```{r}
+plot_barplot_A5A6 <- ((barplot_A5A6_BenN + barplot_A5A6_BenN_Manure + barplot_A5A6_BenN_plastic) / (barplot_A5A6_BenN_pest + barplot_A5A6_BenN_irri) ) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_barplot_A5A6.png", width = 15, height = 12, dpi = 600)
+```
+
+
+# A2 / A17 / A21 /A5 A6 - full dataset
+
+```{r}
+MAP_all_noNA[2:53] <- lapply(MAP_all_noNA[2:53], as.integer)
+MAP_all_noNA[111] <- lapply(MAP_all_noNA[111], as.integer)
+```
+
+
+## Compost
+### A2 - combi compost
+```{r}
+model_NB_compost_A2 <- glm.nb(
+  formula = A2 ~ Compost, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_compost_A2)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_compost_A2)
+```
+```{r}
+em_A2 <- emmeans(model_NB_compost_A2, pairwise ~ Compost, adjust = "sidak")
+em_A2
+
+cld_em_A2 <- cld(em_A2, Letters = letters, adjust = "sidak")
+print(cld_em_A2)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A2, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A2_compost <- ggplot(MAP_all_noNA, aes(x = Compost, y = log_A2)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A2, aes(x = Compost, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Compost usage", y = "A2 counts/Hectare") 
+Boxplot_A2_compost
+```
+```{r}
+summary_data_A2 <- MAP_all_noNA %>%
+  group_by(Compost) %>%
+  summarise(
+    mean_plastic = mean(A2, na.rm = TRUE),
+    se_plastic = sd(A2, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A2 <- ggplot(summary_data_A2, aes(x = Compost, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A2, aes(x = Compost, y = 600, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean sheets (A2) Counts/Ha", x = "Compost Treatment") +
+  theme_publish()
+barplot_A2
+```
+
+### A17 - combi compost
+
+```{r}
+model_NB_compost_A17 <- glm.nb(
+  formula = A17 ~ Compost, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_compost_A17)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_compost_A17)
+```
+
+```{r}
+em_A17 <- emmeans(model_NB_compost_A17, pairwise ~ Compost, adjust = "sidak")
+em_A17
+
+cld_em_A17 <- cld(em_A17, Letters = letters, adjust = "sidak")
+print(cld_em_A17)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A17, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A17_compost <- ggplot(MAP_all_noNA, aes(x = Compost, y = log_A17)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A17, aes(x = Compost, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Compost usage", y = "A17 counts/Hectare") 
+Boxplot_A17_compost
+```
+```{r}
+summary_data_A17 <- MAP_all_noNA %>%
+  group_by(Compost) %>%
+  summarise(
+    mean_plastic = mean(A17, na.rm = TRUE),
+    se_plastic = sd(A17, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A17 <- ggplot(summary_data_A17, aes(x = Compost, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A17, aes(x = Compost, y = 300, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean A17 Counts/Ha", x = "Compost Treatment") +
+  theme_publish()
+barplot_A17
+
+#ggsave("barplot_A17.png", dpi = 600, height = 5, width = 7, bg = "transparent")
+```
+
+### A21 - combi compost
+```{r}
+model_NB_compost_A21 <- glm.nb(
+  formula = A21 ~ Compost, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_compost_A21)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_compost_A21)
+```
+
+```{r}
+em_A21<- emmeans(model_NB_compost_A21, pairwise ~ Compost, adjust = "sidak")
+em_A21
+
+cld_em_A21 <- cld(em_A21, Letters = letters, adjust = "sidak")
+print(cld_em_A21)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A21, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A21_compost <- ggplot(MAP_all_noNA, aes(x = Compost, y = log_A21)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A21, aes(x = Compost, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_poster() + 
+  
+  labs(title = "",
+       x = "Compost usage", y = "Log10 A21 counts/Hectare") 
+Boxplot_A21_compost
+```
+```{r}
+summary_data_A21 <- MAP_all_noNA %>%
+  group_by(Compost) %>%
+  summarise(
+    mean_plastic = mean(A21, na.rm = TRUE),
+    se_plastic = sd(A21, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A21 <- ggplot(summary_data_A21, aes(x = Compost, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.1) +
+  geom_text(data = cld_em_A21, aes(x = Compost, y = 20, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean A21 Counts/Ha", x = "Compost Treatment") +
+  theme_publish()
+barplot_A21
+#ggsave("barplot_A21.png", dpi = 600, height = 5, width = 7, bg = "transparent")
+```
+
+
+
+
+### A5 and A6 - combi compost
+```{r}
+model_NB_compost_A5A6 <- glm.nb(
+  formula = A5_A6 ~ Compost, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_compost_A5A6)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_compost_A5A6)
+```
+
+```{r}
+em_A5A6 <- emmeans(model_NB_compost_A5A6, pairwise ~ Compost, adjust = "sidak")
+em_A5A6
+
+cld_em_A5A6 <- cld(em_A5A6, Letters = letters, adjust = "sidak")
+print(cld_em_A5A6)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A5A6, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A5A6_compost <- ggplot(MAP_all_noNA, aes(x = Compost, y = log_A5A6)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A5A6, aes(x = Compost, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Compost usage", y = "Log10 fibers (A5_A6) counts/Hectare") 
+Boxplot_A5A6_compost
+```
+```{r}
+summary_data_A5A6 <- MAP_all_noNA %>%
+  group_by(Compost) %>%
+  summarise(
+    mean_plastic = mean(A5_A6, na.rm = TRUE),
+    se_plastic = sd(A5_A6, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A5A6 <- ggplot(summary_data_A5A6, aes(x = Compost, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A5A6, aes(x = Compost, y = 40, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean fibers (A5_A6) Counts/Ha", x = "Compost Treatment") +
+  theme_publish()
+barplot_A5A6
+```
+
+
+## Manure
+### A2 - combi manure
+```{r}
+model_NB_manure_A2 <- glm.nb(
+  formula = A2 ~ Manure, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_manure_A2)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_manure_A2)
+```
+```{r}
+em_A2_manure <- emmeans(model_NB_manure_A2, pairwise ~ Manure, adjust = "sidak")
+em_A2_manure
+
+cld_em_A2_manure <- cld(em_A2_manure, Letters = letters, adjust = "sidak")
+print(cld_em_A2_manure)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A2, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A2_manure <- ggplot(MAP_all_noNA, aes(x = Manure, y = log_A2)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A2_manure, aes(x = Manure, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Manure usage", y = "A2 counts/Hectare") 
+Boxplot_A2_manure
+```
+```{r}
+summary_data_A2 <- MAP_all_noNA %>%
+  group_by(Manure) %>%
+  summarise(
+    mean_plastic = mean(A2, na.rm = TRUE),
+    se_plastic = sd(A2, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A2_manure <- ggplot(summary_data_A2, aes(x = Manure, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A2_manure, aes(x = Manure, y = 600, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean sheets (A2) Counts/Ha", x = "Manure Treatment") +
+  theme_publish()
+barplot_A2_manure
+```
+
+### A17 - combi Manure
+
+```{r}
+model_NB_Manure_A17 <- glm.nb(
+  formula = A17 ~ Manure, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_Manure_A17)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_Manure_A17)
+```
+
+```{r}
+em_A17_manure <- emmeans(model_NB_Manure_A17, pairwise ~ Manure, adjust = "sidak")
+em_A17_manure
+
+cld_em_A17_manure <- cld(em_A17_manure, Letters = letters, adjust = "sidak")
+print(cld_em_A17_manure)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A17, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A17_manure <- ggplot(MAP_all_noNA, aes(x = Manure, y = log_A17)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A17_manure, aes(x = Manure, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Manure usage", y = "A17 counts/Hectare") 
+Boxplot_A17_manure
+```
+```{r}
+summary_data_A17 <- MAP_all_noNA %>%
+  group_by(Manure) %>%
+  summarise(
+    mean_plastic = mean(A17, na.rm = TRUE),
+    se_plastic = sd(A17, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A17_manure <- ggplot(summary_data_A17, aes(x = Manure, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A17_manure, aes(x = Manure, y = 300, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean hard plastcis (A17) Counts/Ha", x = "Manure Treatment") +
+  theme_publish()
+barplot_A17_manure
+```
+
+### A21 - combi Manure
+```{r}
+model_NB_Manure_A21 <- glm.nb(
+  formula = A21 ~ Manure, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_Manure_A21)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_Manure_A21)
+```
+
+```{r}
+em_A21_manure <- emmeans(model_NB_Manure_A21, pairwise ~ Manure, adjust = "sidak")
+em_A21_manure
+
+cld_em_A21_manure <- cld(em_A21_manure, Letters = letters, adjust = "sidak")
+print(cld_em_A21_manure)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A21, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A21_Manure <- ggplot(MAP_all_noNA, aes(x = Manure, y = log_A21)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A21_manure, aes(x = Manure, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Manure usage", y = "Log10 A21 counts/Hectare") 
+Boxplot_A21_Manure
+```
+```{r}
+summary_data_A21 <- MAP_all_noNA %>%
+  group_by(Manure) %>%
+  summarise(
+    mean_plastic = mean(A21, na.rm = TRUE),
+    se_plastic = sd(A21, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A21_manure <- ggplot(summary_data_A21, aes(x = Manure, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A21_manure, aes(x = Manure, y = 30, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean plastic stickers (A21) Counts/Ha", x = "Manure Treatment") +
+  theme_publish()
+barplot_A21_manure
+```
+
+
+### A5 and A6 - combi Manure
+```{r}
+model_NB_Manure_A5A6 <- glm.nb(
+  formula = A5_A6 ~ Manure, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_Manure_A5A6)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_Manure_A5A6)
+```
+
+```{r}
+em_A5A6_Manure <- emmeans(model_NB_Manure_A5A6, pairwise ~ Manure, adjust = "sidak")
+em_A5A6_Manure
+
+cld_em_A5A6_Manure <- cld(em_A5A6_Manure, Letters = letters, adjust = "sidak")
+print(cld_em_A5A6_Manure)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A5A6, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A5A6_Manure <- ggplot(MAP_all_noNA, aes(x = Manure, y = log_A5A6)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A5A6_Manure, aes(x = Manure, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Manure usage", y = "Log10 fibers (A5_A6) counts/Hectare") 
+Boxplot_A5A6_Manure
+```
+```{r}
+summary_data_A5A6 <- MAP_all_noNA %>%
+  group_by(Manure) %>%
+  summarise(
+    mean_plastic = mean(A5_A6, na.rm = TRUE),
+    se_plastic = sd(A5_A6, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A5A6_Manure <- ggplot(summary_data_A5A6, aes(x = Manure, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A5A6_Manure, aes(x = Manure, y = 75, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean fibers (A5_A6) Counts/Ha", x = "Manure Treatment") +
+  theme_publish()
+barplot_A5A6_Manure
+```
+
+
+## Pesticides
+### A2 - Combi pesticides
+
+```{r}
+model_NB_pest_A2 <- glm.nb(
+  formula = A2 ~ pesticides, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_pest_A2)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_pest_A2)
+```
+```{r}
+em_A2_pest <- emmeans(model_NB_pest_A2, pairwise ~ pesticides, adjust = "sidak")
+em_A2_pest
+
+cld_em_A2_pest <- cld(em_A2_pest, Letters = letters, adjust = "sidak")
+print(cld_em_A2_pest)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A2, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A2_pest <- ggplot(MAP_all_noNA, aes(x = pesticides, y = log_A2)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A2_pest, aes(x = pesticides, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Pesticides usage", y = "A2 counts/Hectare") 
+Boxplot_A2_pest
+```
+```{r}
+summary_data_A2 <- MAP_all_noNA %>%
+  group_by(pesticides) %>%
+  summarise(
+    mean_plastic = mean(A2, na.rm = TRUE),
+    se_plastic = sd(A2, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A2_pest <- ggplot(summary_data_A2, aes(x = pesticides, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A2_pest, aes(x = pesticides, y = 600, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean sheets (A2) Counts/Ha", x = "Pesticides Treatment") +
+  theme_publish()
+barplot_A2_pest
+```
+
+### A17 - combi Pesticides
+
+```{r}
+model_NB_pest_A17 <- glm.nb(
+  formula = A17 ~ pesticides, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_pest_A17)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_pest_A17)
+```
+
+```{r}
+em_A17_pest <- emmeans(model_NB_pest_A17, pairwise ~ pesticides, adjust = "sidak")
+em_A17_pest
+
+cld_em_A17_pest <- cld(em_A17_pest, Letters = letters, adjust = "sidak")
+print(cld_em_A17_pest)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A17, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A17_pest <- ggplot(MAP_all_noNA, aes(x = pesticides, y = log_A17)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A17_pest, aes(x = pesticides, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Pesticides usage", y = "A17 counts/Hectare") 
+Boxplot_A17_pest
+```
+```{r}
+summary_data_A17 <- MAP_all_noNA %>%
+  group_by(pesticides) %>%
+  summarise(
+    mean_plastic = mean(A17, na.rm = TRUE),
+    se_plastic = sd(A17, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A17_pest <- ggplot(summary_data_A17, aes(x = pesticides, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A17_pest, aes(x = pesticides, y = 300, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean hard plsatics (A17) Counts/Ha", x = "Pesticides Treatment") +
+  theme_publish()
+barplot_A17_pest
+```
+
+### A21 - combi pesticides
+```{r}
+model_NB_pest_A21 <- glm.nb(
+  formula = A21 ~ pesticides, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_pest_A21)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_pest_A21)
+```
+
+```{r}
+em_A21_pest <- emmeans(model_NB_pest_A21, pairwise ~ pesticides, adjust = "sidak")
+em_A21_pest
+
+cld_em_A21_pest <- cld(em_A21_pest, Letters = letters, adjust = "sidak")
+print(cld_em_A21_pest)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A21, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A21_pest <- ggplot(MAP_all_noNA, aes(x = pesticides, y = log_A21)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A21_pest, aes(x = pesticides, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Pesticides usage", y = "Log10 A21 counts/Hectare") 
+Boxplot_A21_pest
+```
+```{r}
+summary_data_A21 <- MAP_all_noNA %>%
+  group_by(pesticides) %>%
+  summarise(
+    mean_plastic = mean(A21, na.rm = TRUE),
+    se_plastic = sd(A21, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A21_pest <- ggplot(summary_data_A21, aes(x = pesticides, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A21_pest, aes(x = pesticides, y = 30, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean plastic stickers (A21) Counts/Ha", x = "Pesticides Treatment") +
+  theme_publish()
+barplot_A21_pest
+```
+
+
+### A5 and A6 - combi Pesticides
+```{r}
+model_NB_pest_A5A6 <- glm.nb(
+  formula = A5_A6 ~ pesticides, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_pest_A5A6)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_pest_A5A6)
+```
+
+```{r}
+em_A5A6_pest <- emmeans(model_NB_pest_A5A6, pairwise ~ pesticides, adjust = "sidak")
+em_A5A6_pest
+
+cld_em_A5A6_pest <- cld(em_A5A6_pest, Letters = letters, adjust = "sidak")
+print(cld_em_A5A6_pest)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A5A6, na.rm = TRUE) * 1.1
+#the plot
+
+Boxplot_A5A6_pest <- ggplot(MAP_all_noNA, aes(x = pesticides, y = log_A5A6)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A5A6_pest, aes(x = pesticides, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Pesticides usage", y = "Log10 fibers (A5_A6) counts/Hectare") 
+Boxplot_A5A6_pest
+```
+```{r}
+summary_data_A5A6 <- MAP_all_noNA %>%
+  group_by(pesticides) %>%
+  summarise(
+    mean_plastic = mean(A5_A6, na.rm = TRUE),
+    se_plastic = sd(A5_A6, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A5A6_pest <- ggplot(summary_data_A5A6, aes(x = pesticides, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A5A6_pest, aes(x = pesticides, y = 75, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean fibers (A5_A6) Counts/Ha", x = "Pesticides Treatment") +
+  theme_publish()
+barplot_A5A6_pest
+```
+## Irrigation
+### A2 - Combi irrigation
+
+```{r}
+model_NB_irri_A2 <- glm.nb(
+  formula = A2 ~ Irrigationyesno, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_irri_A2)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_irri_A2)
+```
+```{r}
+em_A2_irri <- emmeans(model_NB_irri_A2, pairwise ~ Irrigationyesno, adjust = "sidak")
+em_A2_irri
+
+cld_em_A2_irri <- cld(em_A2_irri, Letters = letters, adjust = "sidak")
+print(cld_em_A2_irri)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A2, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A2_irri <- ggplot(MAP_all_noNA, aes(x = Irrigationyesno, y = log_A2)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A2_irri, aes(x = Irrigationyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Irrigation usage", y = "A2 counts/Hectare") 
+Boxplot_A2_irri
+```
+```{r}
+summary_data_A2 <- MAP_all_noNA %>%
+  group_by(Irrigationyesno) %>%
+  summarise(
+    mean_plastic = mean(A2, na.rm = TRUE),
+    se_plastic = sd(A2, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A2_irri <- ggplot(summary_data_A2, aes(x = Irrigationyesno, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A2_irri, aes(x = Irrigationyesno, y = 800, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean sheets (A2) Counts/Ha", x = "Irrigation Treatment") +
+  theme_publish()
+barplot_A2_irri
+```
+
+### A17 - combi irrigation
+
+```{r}
+model_NB_irri_A17 <- glm.nb(
+  formula = A17 ~ Irrigationyesno, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_irri_A17)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_irri_A17)
+```
+
+```{r}
+em_A17_irri <- emmeans(model_NB_irri_A17, pairwise ~ Irrigationyesno, adjust = "sidak")
+em_A17_irri
+
+cld_em_A17_irri <- cld(em_A17_irri, Letters = letters, adjust = "sidak")
+print(cld_em_A17_irri)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A17, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A17_irri <- ggplot(MAP_all_noNA, aes(x = Irrigationyesno, y = log_A17)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A17_irri, aes(x = Irrigationyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Irrigation usage", y = "A17 counts/Hectare") 
+Boxplot_A17_irri
+```
+```{r}
+summary_data_A17 <- MAP_all_noNA %>%
+  group_by(Irrigationyesno) %>%
+  summarise(
+    mean_plastic = mean(A17, na.rm = TRUE),
+    se_plastic = sd(A17, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A17_irri <- ggplot(summary_data_A17, aes(x = Irrigationyesno, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A17_irri, aes(x = Irrigationyesno, y = 300, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean hard plastics (A17) Counts/Ha", x = "Irrigation Treatment") +
+  theme_publish()
+barplot_A17_irri
+```
+
+### A21 - combi irrigation
+```{r}
+model_NB_irri_A21 <- glm.nb(
+  formula = A21 ~ Irrigationyesno, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_irri_A21)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_irri_A21)
+```
+
+```{r}
+em_A21_irri <- emmeans(model_NB_irri_A21, pairwise ~ Irrigationyesno, adjust = "sidak")
+em_A21_irri
+
+em_A21_irri <- cld(em_A21_irri, Letters = letters, adjust = "sidak")
+print(em_A21_irri)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A21, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A21_irri <- ggplot(MAP_all_noNA, aes(x = Irrigationyesno, y = log_A21)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = em_A21_irri, aes(x = Irrigationyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Irrigation usage", y = "Log10 A21 counts/Hectare") 
+Boxplot_A21_irri
+```
+```{r}
+summary_data_A21 <- MAP_all_noNA %>%
+  group_by(Irrigationyesno) %>%
+  summarise(
+    mean_plastic = mean(A21, na.rm = TRUE),
+    se_plastic = sd(A21, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A21_irri <- ggplot(summary_data_A21, aes(x = Irrigationyesno, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = em_A21_irri, aes(x = Irrigationyesno, y = 30, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean plastic stickers (A21) Counts/Ha", x = "Irrigation Treatment") +
+  theme_publish()
+barplot_A21_irri
+```
+
+
+### A5 and A6 - combi irrigation
+```{r}
+model_NB_irri_A5A6 <- glm.nb(
+  formula = A5_A6 ~ Irrigationyesno, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_irri_A5A6)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_irri_A5A6)
+```
+
+```{r}
+em_A5A6_irri <- emmeans(model_NB_irri_A5A6, pairwise ~ Irrigationyesno, adjust = "sidak")
+em_A5A6_irri
+
+cld_em_A5A6_irri <- cld(em_A5A6_irri, Letters = letters, adjust = "sidak")
+print(cld_em_A5A6_irri)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A5A6, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A5A6_irri <- ggplot(MAP_all_noNA, aes(x = Irrigationyesno, y = log_A5A6)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A5A6_irri, aes(x = Irrigationyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Irrigation usage", y = "Log10 fibers (A5_A6) counts/Hectare") 
+Boxplot_A5A6_irri
+```
+```{r}
+summary_data_A5A6 <- MAP_all_noNA %>%
+  group_by(Irrigationyesno) %>%
+  summarise(
+    mean_plastic = mean(A5_A6, na.rm = TRUE),
+    se_plastic = sd(A5_A6, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A5A6_irri <- ggplot(summary_data_A5A6, aes(x = Irrigationyesno, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A5A6_irri, aes(x = Irrigationyesno, y = 40, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean fibers (A5_A6) Counts/Ha", x = "Irrigation Treatment") +
+  theme_publish()
+barplot_A5A6_irri
+```
+
+## Plastic usage
+
+###A2 - combi plastic
+
+```{r}
+model_NB_plastic_A2 <- glm.nb(
+  formula = A2 ~ Plasticyesno, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_plastic_A2)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_plastic_A2)
+```
+
+```{r}
+em_A2_plastic <- emmeans(model_NB_plastic_A2, pairwise ~ Plasticyesno, adjust = "sidak")
+em_A2_plastic
+
+cld_em_A2_plastic <- cld(em_A2_plastic, Letters = letters, adjust = "sidak")
+print(cld_em_A2_plastic)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A2, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A2_plastic <- ggplot(MAP_all_noNA, aes(x = Plasticyesno, y = log_A2)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A2_plastic, aes(x = Plasticyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Plastic usage", y = "Log10 sheets (A2) counts/Hectare") 
+Boxplot_A2_plastic
+```
+```{r}
+summary_data_A2 <- MAP_all_noNA %>%
+  group_by(Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(A2, na.rm = TRUE),
+    se_plastic = sd(A2, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A2_plastic <- ggplot(summary_data_A2, aes(x = Plasticyesno, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A2_plastic, aes(x = Plasticyesno, y = 2000, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean A2 Counts/Ha", x = "Plastic usage") +
+  theme_publish()
+barplot_A2_plastic
+#ggsave("barplot_A2_plastic.png", dpi = 600, height = 5, width = 7, bg = "transparent")
+```
+
+
+```{r}
+summary <- MAP_all_noNA %>%
+  group_by(Plasticyesno) %>% #onderverdelen in groepen, je kan hier ook meerder aan meegeven zoals bv compost
+  dplyr::summarize(Mean = mean(Total_plastics, na.rm = TRUE),
+             n = n(),
+             SD = sd(Total_plastics,na.rm = TRUE),
+             SE = sd(Total_plastics, na.rm = TRUE)/sqrt(n),
+             CI.lower = Mean - 2*SE,
+             CI.upper = Mean + 2*SE) #%>%
+  #formattable
+ 
+summary
+```
+
+
+### A17 - combi plastic
+```{r}
+model_NB_plastic_A17 <- glm.nb(
+  formula = A17 ~ Plasticyesno, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_plastic_A17)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_plastic_A17)
+```
+
+```{r}
+em_A17_plastic <- emmeans(model_NB_plastic_A17, pairwise ~ Plasticyesno, adjust = "sidak")
+em_A17_plastic
+
+cld_em_A17_plastic <- cld(em_A17_plastic, Letters = letters, adjust = "sidak")
+print(cld_em_A17_plastic)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A17, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A17_plastic <- ggplot(MAP_all_noNA, aes(x = Plasticyesno, y = log_A17)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A17_plastic, aes(x = Plasticyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Plastic usage", y = "Log10 hard plastics (A17) counts/Hectare") 
+Boxplot_A17_plastic
+```
+```{r}
+summary_data_A17 <- MAP_all_noNA %>%
+  group_by(Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(A17, na.rm = TRUE),
+    se_plastic = sd(A17, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A17_plastic <- ggplot(summary_data_A17, aes(x = Plasticyesno, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A17_plastic, aes(x = Plasticyesno, y = 400, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean A17 Counts/Ha", x = "Plastic usage") +
+  theme_publish()
+barplot_A17_plastic
+
+#ggsave("barplot_A17_plastic.png", dpi = 600, height = 5, width = 7, bg = "transparent")
+```
+
+### A21 - combi plastic
+```{r}
+model_NB_plastic_A21 <- glm.nb(
+  formula = A21 ~ Plasticyesno, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_plastic_A21)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_plastic_A21)
+```
+
+```{r}
+em_A21_plastic <- emmeans(model_NB_plastic_A21, pairwise ~ Plasticyesno, adjust = "sidak")
+em_A21_plastic
+
+cld_em_A21_plastic <- cld(em_A21_plastic, Letters = letters, adjust = "sidak")
+print(cld_em_A21_plastic)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A21, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A21_plastic <- ggplot(MAP_all_noNA, aes(x = Plasticyesno, y = log_A21)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A21_plastic, aes(x = Plasticyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Plastic usage", y = "Log10 plastic stickers (A21) counts/Hectare") 
+Boxplot_A21_plastic
+```
+```{r}
+summary_data_A21 <- MAP_all_noNA %>%
+  group_by(Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(A21, na.rm = TRUE),
+    se_plastic = sd(A21, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A21_plastic <- ggplot(summary_data_A21, aes(x = Plasticyesno, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A21_plastic, aes(x = Plasticyesno, y = 30, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean plastic stickers (A21) Counts/Ha", x = "Plastic Treatment") +
+  theme_publish()
+barplot_A21_plastic
+```
+
+
+### A5_A6 - combi plastic
+
+```{r}
+model_NB_plastic_A5A6 <- glm.nb(
+  formula = A5_A6 ~ Plasticyesno, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_plastic_A5A6)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_plastic_A5A6)
+```
+
+```{r}
+em_A5A6_plastic <- emmeans(model_NB_plastic_A5A6, pairwise ~ Plasticyesno, adjust = "sidak")
+em_A5A6_plastic
+
+cld_em_A5A6_plastic <- cld(em_A5A6_plastic, Letters = letters, adjust = "sidak")
+print(cld_em_A5A6_plastic)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_A5A6, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_A5A6_plastic <- ggplot(MAP_all_noNA, aes(x = Plasticyesno, y = log_A5A6)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_A5A6_plastic, aes(x = Plasticyesno, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Plastic usage", y = "Log10 fibers (A5_A6) counts/Hectare") 
+Boxplot_A5A6_plastic
+```
+```{r}
+summary_data_A5A6 <- MAP_all_noNA %>%
+  group_by(Plasticyesno) %>%
+  summarise(
+    mean_plastic = mean(A5_A6, na.rm = TRUE),
+    se_plastic = sd(A5_A6, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_A5A6_plastic <- ggplot(summary_data_A5A6, aes(x = Plasticyesno, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_A5A6_plastic, aes(x = Plasticyesno, y = 100, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Mean fibers (A5_A6) Counts/Ha", x = "Plastic Treatment") +
+  theme_publish()
+barplot_A5A6_plastic
+```
+
+## ggsave - full dataset
+### A2
+
+```{r}
+plot_barplot_A2 <- ((barplot_A2 + barplot_A2_manure + barplot_A2_plastic) / (barplot_A2_pest + barplot_A2_irri) ) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_barplot_A2_fulldataset.png", width = 15, height = 12, dpi = 600)
+```
+
+### A17
+
+```{r}
+plot_barplot_A17 <- ((barplot_A17 + barplot_A17_manure + barplot_A17_plastic) / (barplot_A17_pest + barplot_A17_irri) ) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_barplot_A17_fulldataset.png", width = 15, height = 12, dpi = 600)
+```
+
+### A21
+
+```{r}
+plot_barplot_A21 <- ((barplot_A21 + barplot_A21_manure + barplot_A21_plastic) / (barplot_A21_pest + barplot_A21_irri) ) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_barplot_A21_fulldataset.png", width = 15, height = 12, dpi = 600)
+```
+
+### A5A6
+
+```{r}
+plot_barplot_A5A6 <- ((barplot_A5A6 + barplot_A5A6_Manure + barplot_A5A6_plastic) / (barplot_A5A6_pest + barplot_A5A6_irri) ) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_barplot_A5A6_fulldataset.png", width = 15, height = 12, dpi = 600)
+```
+
+###A2-A17 - plastic
+
+```{r}
+plot_barplot_A2A17 <- ((barplot_A2_plastic + barplot_A17_plastic) + plot_layout(guides = 'collect')) +
+  plot_annotation(tag_levels = "A", theme = theme(plot.background = element_blank()))
+ 
+ggsave("plot_barplot_A2A17.png", width = 7, height = 5, dpi = 600, bg = "transparent")
+```
+
+###A2-A17 - compost
+
+```{r}
+plot_barplot_A2A17_compost <- ((barplot_A17 + barplot_A21) + plot_layout(guides = 'collect')) +
+  plot_annotation(tag_levels = "A", theme = theme(plot.background = element_blank()))
+
+ggsave("plot_barplot_A2A17_compost.png", width = 8, height = 5, dpi = 600, bg = "transparent")
+```
+
+
+
+# Distance for Belgium
+## NB model
+```{r}
+model_NB_distance <- glm.nb(
+  formula = Total_plastics_count ~ distance_city + Distance_primroutes + distance_highway + min_distance_IndorW + distance_village, 
+  offset(log(Surface_m2)), 
+  data = MAP_Belgium_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_distance)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_distance)
+```
+
+model with the minimum distance to cities an villages taken into 1 parameter
+```{r}
+model_NB_distance_1 <- glm.nb(
+  formula = Total_plastics_count ~ min_city_village + Distance_primroutes + distance_highway + min_distance_IndorW, 
+  offset(log(Surface_m2)), 
+  data = MAP_Belgium_noNA, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_distance_1)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_distance_1)
+```
+
+## Distance city
+Make a correlation plot to know the correlation between the amount of plastics and the distance to the city
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_Total_plastic, MAP_Belgium_noNA$distance_city)
+pred <- predict(model_NB_distance, type = "response")
+# Plot
+cor_plot_distance_city <- ggplot(MAP_Belgium_noNA, aes(x = distance_city, y = log_Total_plastic)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance$theta)),
+    se = TRUE) +
+  labs(
+    x = "Distance to city (m)",
+    y = "Log total plastic/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_city
+```
+## Correlation Distance_primroutes
+
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_Total_plastic, MAP_Belgium_noNA$Distance_primroutes)
+pred <- predict(model_NB_distance, type = "response")
+# Plot
+cor_plot_distance_primroutes <- ggplot(MAP_Belgium_noNA, aes(x = Distance_primroutes, y = log_Total_plastic)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance$theta)),
+    se = TRUE) +
+   annotate(
+    "text",
+    x = Inf, y = Inf,
+    label = paste("Correlation =", round(cor_value, 3)),
+    hjust = 1.1, vjust = 1.5
+  )+
+  labs(
+    x = "Distance to primair routes (m)",
+    y = "Log total plastic/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_primroutes
+```
+## Correlation distance_highway
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_Total_plastic, MAP_Belgium_noNA$distance_highway)
+pred <- predict(model_NB_distance, type = "response")
+# Plot
+cor_plot_distance_highway <- ggplot(MAP_Belgium_noNA, aes(x = distance_highway, y = log_Total_plastic)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance$theta)),
+    se = TRUE) +
+  labs(
+    #title = paste("Scatter plot with correlation =", round(cor_value, 3)),
+    x = "Distance to highway (m)",
+    y = "Log total plastic/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_highway
+```
+
+## Correlation min_distance_IndorW
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_Total_plastic, MAP_Belgium_noNA$min_distance_IndorW)
+pred <- predict(model_NB_distance, type = "response")
+# Plot
+cor_plot_distance_IndorW <- ggplot(MAP_Belgium_noNA, aes(x = min_distance_IndorW, y = log_Total_plastic)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance$theta)),
+    se = TRUE) +
+  labs(
+    #title = paste("Scatter plot with correlation =", round(cor_value, 3)),
+    x = "Distance to Industry or Waste recyling (m)",
+    y = "Log total plastic/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_IndorW
+```
+## Correlation distance_village
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_Total_plastic, MAP_Belgium_noNA$distance_village)
+pred <- predict(model_NB_distance, type = "response")
+# Plot
+cor_plot_distance_Village <- ggplot(MAP_Belgium_noNA, aes(x = distance_village, y = log_Total_plastic)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance$theta)),
+    se = TRUE) +
+  labs(
+    x = "Distance to villages (m)",
+    y = "Log total plastic/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_Village
+```
+
+## Correlation min_distance village and city
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_Total_plastic, MAP_Belgium_noNA$min_city_village)
+pred <- predict(model_NB_distance_1, type = "response")
+# Plot
+cor_plot_distance_Village_city <- ggplot(MAP_Belgium_noNA, aes(x = min_city_village, y = log_Total_plastic)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_1$theta)),
+    se = TRUE) +
+  annotate(
+    "text",
+    x = Inf, y = Inf,
+    label = paste("Correlation =", round(cor_value, 3)),
+    hjust = 1.1, vjust = 1.5
+  )+
+  labs(
+    x = "Minimal distance to villages and city (m)",
+    y = "Log total plastic/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_Village_city
+```
+
+
+#A2/A17/A20
+we want to know if a specific category is more correlated with the category A2 or A17 or A20
+
+```{r}
+MAP_Belgium_noNA[2:53] <- lapply(MAP_Belgium_noNA[2:53], as.integer)
+```
+
+## A2
+
+
+```{r}
+model_NB_distance_A2 <- glm.nb(
+  formula = A2 ~ distance_city + Distance_primroutes + distance_highway + min_distance_IndorW + distance_village, 
+  offset(log(Surface_m2)), 
+  data = MAP_Belgium_noNA, 
+  control = glm.control(maxit = 100)
+)
+summary(model_NB_distance_A2)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_distance_A2)
+
+
+summary(MAP_Belgium_noNA$A2)
+
+
+```
+
+### Distance city
+### Primroutes
+### Highways
+### Minimum distance Recyclage or industry
+### Distance villages
+
+## A17
+```{r}
+model_NB_distance_A17 <- glm.nb(
+  formula = A17 ~ distance_city + Distance_primroutes + distance_highway + min_distance_IndorW + distance_village, 
+  offset(log(Surface_m2)), 
+  data = MAP_Belgium_noNA, 
+  control = glm.control(maxit = 100)
+)
+summary(model_NB_distance_A17)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_distance_A17)
+```
+### Distance city
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_A17, MAP_Belgium_noNA$distance_city)
+pred <- predict(model_NB_distance_A17, type = "response")
+# Plot
+cor_plot_distance_city <- ggplot(MAP_Belgium_noNA, aes(x = distance_city, y = log_A17)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_A17$theta)),
+    se = TRUE) +
+  labs(
+    x = "Distance to city (m)",
+    y = "Log hard plastics (A17)/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_city
+```
+
+### Primroutes
+
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_A17, MAP_Belgium_noNA$Distance_primroutes)
+pred <- predict(model_NB_distance_A17, type = "response")
+# Plot
+cor_plot_distance_primroutes_A17 <- ggplot(MAP_Belgium_noNA, aes(x = Distance_primroutes, y = log_A17)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_A17$theta)),
+    se = TRUE) +
+  labs(
+    x = "Distance to primair routes (m)",
+    y = "Log hard plastic (A17)/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_primroutes_A17
+```
+### Highways
+
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_A17, MAP_Belgium_noNA$distance_highway)
+pred <- predict(model_NB_distance_A17, type = "response")
+# Plot
+cor_plot_distance_highway_A17 <- ggplot(MAP_Belgium_noNA, aes(x = distance_highway, y = log_A17)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_A17$theta)),
+    se = TRUE) +
+  labs(
+    #title = paste("Scatter plot with correlation =", round(cor_value, 3)),
+    x = "Distance to highway (m)",
+    y = "Log hard plastic (A17)/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_highway_A17
+```
+### Minimum distance Recyclage or industry
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_A17, MAP_Belgium_noNA$min_distance_IndorW)
+pred <- predict(model_NB_distance_A17, type = "response")
+# Plot
+cor_plot_distance_IndorW <- ggplot(MAP_Belgium_noNA, aes(x = min_distance_IndorW, y = log_A17)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_A17$theta)),
+    se = TRUE) +
+  labs(
+    #title = paste("Scatter plot with correlation =", round(cor_value, 3)),
+    x = "Distance to Industry or Waste recyling (m)",
+    y = "Log hard plastic (A17)/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_IndorW
+```
+### Distance villages
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_A17, MAP_Belgium_noNA$distance_village)
+pred <- predict(model_NB_distance_A17, type = "response")
+# Plot
+cor_plot_distance_Village_A17 <- ggplot(MAP_Belgium_noNA, aes(x = distance_village, y = log_A17)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_A17$theta)),
+    se = TRUE) +
+  labs(
+    x = "Distance to villages (m)",
+    y = "Log hard plastic (A17)/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_Village_A17
+```
+## A20
+
+```{r}
+model_NB_distance_A20 <- glm.nb(
+  formula = A20 ~ distance_city + Distance_primroutes + distance_highway + min_distance_IndorW + distance_village, 
+  offset(log(Surface_m2)), 
+  data = MAP_Belgium_noNA, 
+  control = glm.control(maxit = 100)
+)
+summary(model_NB_distance_A20)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_distance_A20)
+```
+### Distance city
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_A20, MAP_Belgium_noNA$distance_city)
+pred <- predict(model_NB_distance_A20, type = "response")
+# Plot
+cor_plot_distance_city_A20 <- ggplot(MAP_Belgium_noNA, aes(x = distance_city, y = log_A20)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_A20$theta)),
+    se = TRUE) +
+  labs(
+    x = "Distance to city (m)",
+    y = "Log crisp packages (A20)/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_city_A20
+```
+### Primroutes
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_A20, MAP_Belgium_noNA$Distance_primroutes)
+pred <- predict(model_NB_distance_A20, type = "response")
+# Plot
+cor_plot_distance_primroutes_A20 <- ggplot(MAP_Belgium_noNA, aes(x = Distance_primroutes, y = log_A20)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_A20$theta)),
+    se = TRUE) +
+  labs(
+    x = "Distance to primair routes (m)",
+    y = "Log crisp packages (A20)/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_primroutes_A20
+```
+### Highways
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_A20, MAP_Belgium_noNA$distance_highway)
+pred <- predict(model_NB_distance_A20, type = "response")
+# Plot
+cor_plot_distance_highway_A20 <- ggplot(MAP_Belgium_noNA, aes(x = distance_highway, y = log_A20)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_A20$theta)),
+    se = TRUE) +
+  labs(
+    #title = paste("Scatter plot with correlation =", round(cor_value, 3)),
+    x = "Distance to highway (m)",
+    y = "Log crisp package (A20)/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_highway_A20
+```
+
+### Minimum distance Recyclage or industry
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_A20, MAP_Belgium_noNA$min_distance_IndorW)
+pred <- predict(model_NB_distance_A20, type = "response")
+# Plot
+cor_plot_distance_IndorW_A20 <- ggplot(MAP_Belgium_noNA, aes(x = min_distance_IndorW, y = log_A20)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_A20$theta)),
+    se = TRUE) +
+  labs(
+    #title = paste("Scatter plot with correlation =", round(cor_value, 3)),
+    x = "Distance to Industry or Waste recyling (m)",
+    y = "Log crisp package/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_IndorW_A20
+```
+
+### Distance villages
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Belgium_noNA$log_A20, MAP_Belgium_noNA$distance_village)
+pred <- predict(model_NB_distance_A20, type = "response")
+# Plot
+cor_plot_distance_Village_A20 <- ggplot(MAP_Belgium_noNA, aes(x = distance_village, y = log_A20)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_A20$theta)),
+    se = TRUE) +
+  labs(
+    x = "Distance to villages (m)",
+    y = "Log crisp package (A20)/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_Village_A20
+```
+
+# Distance Vlaanderen
+## NB model
+```{r}
+model_NB_distance_Vl <- glm.nb(
+  formula = Total_plastics_count ~ distance_city + Distance_primroutes + distance_highway + min_distance_IndorW + distance_village, 
+  offset(log(Surface_m2)), 
+  data = MAP_flanders, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_distance_Vl)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_distance_Vl)
+```
+
+```{r}
+model_NB_distance_Vl_1 <- glm.nb(
+  formula = Total_plastics_count ~ min_city_village + Distance_primroutes + distance_highway + min_distance_IndorW, 
+  offset(log(Surface_m2)), 
+  data = MAP_flanders, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_distance_Vl_1)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_distance_Vl_1)
+```
+## min distance village and city
+
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_flanders$log_Total_plastic, MAP_flanders$min_city_village)
+pred <- predict(model_NB_distance_Vl_1, type = "response")
+# Plot
+cor_plot_distance_Village_city_vl <- ggplot(MAP_flanders, aes(x = min_city_village, y = log_Total_plastic)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_Vl_1$theta)),
+    se = TRUE) +
+  annotate(
+    "text",
+    x = Inf, y = Inf,
+    label = paste("Correlation =", round(cor_value, 3)),
+    hjust = 1.1, vjust = 1.5
+  )+
+  labs(
+    x = "Minimal distance to villages and city (m)",
+    y = "Log total plastic/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_Village_city_vl
+```
+
+## Correlation Distance_primroutes
+
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_flanders$log_Total_plastic, MAP_flanders$Distance_primroutes)
+pred <- predict(model_NB_distance_Vl_1, type = "response")
+# Plot
+cor_plot_distance_primroutes_vl <- ggplot(MAP_flanders, aes(x = Distance_primroutes, y = log_Total_plastic)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_Vl_1$theta)),
+    se = TRUE) +
+   annotate(
+    "text",
+    x = Inf, y = Inf,
+    label = paste("Correlation =", round(cor_value, 3)),
+    hjust = 1.1, vjust = 1.5
+  )+
+  labs(
+    x = "Distance to primair routes (m)",
+    y = "Log total plastic/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_primroutes_vl
+```
+
+
+#Distance Wallonië
+
+```{r}
+model_NB_distance_W <- glm.nb(
+  formula = Total_plastics_count ~ min_city_village + Distance_primroutes + distance_highway + min_distance_IndorW, 
+  offset(log(Surface_m2)), 
+  data = MAP_Wallonia, 
+  control = glm.control(maxit = 100))
+    
+summary(model_NB_distance_W)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_distance_W)
+```
+## min distance village and city
+
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Wallonia$log_Total_plastic, MAP_Wallonia$min_city_village)
+pred <- predict(model_NB_distance_W, type = "response")
+# Plot
+cor_plot_distance_Village_city_W <- ggplot(MAP_Wallonia, aes(x = min_city_village, y = log_Total_plastic)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_W$theta)),
+    se = TRUE) +
+  annotate(
+    "text",
+    x = Inf, y = Inf,
+    label = paste("Correlation =", round(cor_value, 3)),
+    hjust = 1.1, vjust = 1.5
+  )+
+  labs(
+    x = "Minimal distance to villages and city (m)",
+    y = "Log total plastic/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_Village_city_W
+```
+
+## Correlation Distance_primroutes
+
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Wallonia$log_Total_plastic, MAP_Wallonia$Distance_primroutes)
+pred <- predict(model_NB_distance_W, type = "response")
+# Plot
+cor_plot_distance_primroutes_W <- ggplot(MAP_Wallonia, aes(x = Distance_primroutes, y = log_Total_plastic)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_W$theta)),
+    se = TRUE) +
+   annotate(
+    "text",
+    x = Inf, y = Inf,
+    label = paste("Correlation =", round(cor_value, 3)),
+    hjust = 1.1, vjust = 1.5
+  )+
+  labs(
+    x = "Distance to primair routes (m)",
+    y = "Log total plastic/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_primroutes_W
+```
+
+## Corelation minimum distance industry and recycling
+```{r}
+# Compute correlation
+cor_value <- cor(MAP_Wallonia$log_Total_plastic, MAP_Wallonia$min_distance_IndorW)
+pred <- predict(model_NB_distance_W, type = "response")
+# Plot
+cor_plot_distance_IndorW_W <- ggplot(MAP_Wallonia, aes(x = min_distance_IndorW, y = log_Total_plastic)) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "glm",
+    method.args = list(family = negative.binomial(theta = model_NB_distance_W$theta)),
+    se = TRUE) +
+   annotate(
+    "text",
+    x = Inf, y = Inf,
+    label = paste("Correlation =", round(cor_value, 3)),
+    hjust = 1.1, vjust = 1.5
+  )+
+  labs(
+    x = "Minimum distance to industry or waste recycling (m)",
+    y = "Log total plastic/Ha"
+  ) +
+  theme_publish()
+cor_plot_distance_IndorW_W
+```
+# ggsave flanders and wallonia
+
+```{r}
+plot_flanders_wallonia <- ((cor_plot_distance_primroutes_vl + cor_plot_distance_primroutes_W)) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_flanders_wallonia_primroutes.png", width = 10, height = 7, dpi = 600)
+```
+
+```{r}
+plot_flanders_wallonia <- ((cor_plot_distance_Village_city_vl + cor_plot_distance_Village_city_W)) + plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = "A")
+ 
+ggsave("Plots_all_litter/plot_flanders_wallonia_cityandV.png", width = 10, height = 7, dpi = 600)
+```
+
+# Bodemtextuur
+```{r}
+model_NB_bodemtextuur <- glm.nb(
+  formula = Total_plastics ~ Soil_Texture, 
+  offset(log(Surface_m2)), 
+  data = MAP_all_noNA, 
+  control = glm.control(maxit = 100)
+)
+summary(model_NB_bodemtextuur)
+par(mfrow = c(2, 2))  # set up 4 plots on one screen
+plot(model_NB_bodemtextuur)
+```
+
+
+```{r}
+em_bodemtextuur <- emmeans(model_NB_bodemtextuur, ~ Soil_Texture, adjust = "sidak")
+em_bodemtextuur
+
+cld_em_bodemtextuur <- cld(em_bodemtextuur, Letters = letters, adjust = "sidak")
+print(cld_em_bodemtextuur)
+
+# Choose a fixed y-position slightly above the tallest value in the whole dataset
+fixed_y <- max(MAP_all_noNA$log_Total_plastic, na.rm = TRUE) * 1.1
+
+#the plot
+
+Boxplot_bodemtextuur <- ggplot(MAP_all_noNA, aes(x = Soil_Texture, y = log_Total_plastic)) +
+  geom_boxplot(outlier.shape = 2, width = 0.7) +
+  geom_jitter(width = 0.3, alpha = 0.5) +
+  #mean
+  stat_summary(fun = mean, geom = "crossbar", color = "lightgrey", width = 0.69) +
+  #significant letter
+  geom_text(data = cld_em_bodemtextuur, aes(x = Soil_Texture, y = fixed_y, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  theme_publish() + 
+  
+  labs(title = "",
+       x = "Soil texture", y = "log total plastics/Hectare") 
+Boxplot_bodemtextuur
+```
+```{r}
+summary_data_bodemtextuur <- MAP_all_noNA %>%
+  group_by(Soil_Texture) %>%
+  summarise(
+    mean_plastic = mean(log_Total_plastic, na.rm = TRUE),
+    se_plastic = sd(log_Total_plastic, na.rm = TRUE) / sqrt(n())
+  )
+
+barplot_bodemtextuur <- ggplot(summary_data_bodemtextuur, aes(x = Soil_Texture, y = mean_plastic)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8)) +
+  geom_errorbar(aes(ymin = mean_plastic - se_plastic, ymax = mean_plastic + se_plastic),
+                width = 0.2) +
+  geom_text(data = cld_em_bodemtextuur, aes(x = Soil_Texture, y = 3, label = .group), inherit.aes = FALSE, fontface = "bold") +
+  labs(y = "Log10 of mean total plastics/Ha", x = "Soil Texture") +
+  theme_publish()
+barplot_bodemtextuur
+```
