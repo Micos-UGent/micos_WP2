@@ -1,0 +1,995 @@
+---
+title: "Run4 NXTGNT"
+author: "Lisa Joos and Shira Houwenhuyse"
+date: "November 13, 2025"
+output:
+  html_document:
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_float: yes
+    toc_depth: 4
+  word_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+subtitle: First data exploration of the bacterial data
+---
+
+```{r}
+options(scipen = 999)
+test
+```
+
+# INFORMATION
+
+For the MiCoS project, 240 fields were sampled throughout Belgium, the Netherlands, and Luxembourg. On those fields 5 replicates (ABCDE) were collected and stored for DNA extraction and eventualy Illumina sequencing. 
+
+Within this dataset the bacterial data were analysed using NextGhent, after troubles with the sequencing provider of ADMERA. The complete dataset contains sequencing data from 7 pools.
+
+| **POOL** | **Description** |
+|-----------|----------------|
+| POOL1     | BACTERIA       |
+| POOL2     | BACTERIA       |
+| POOL3     | BACTERIA       |
+| POOL4     | BACTERIA       |
+| POOL5     | BACTERIA       |
+| POOL6     | BACTERIA       |
+| POOL7     | NOT MICOS      |
+
+Goals to analyse:
+
+- Zitten de technische replicaten allemaal samen?
+- Hoe clusteren de pools
+- Subset van 20 stalen nemen en elk een apart kleurtje geven en nagaan hoe ze clusteren
+
+NEXT TO DOs 27.11.2025
+
++ Start with making a distance plot
++ Create an nmds
++ 
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+# Load packages
+# Data manipulation
+library(plyr)
+library(dplyr)
+library(formattable)
+library(multcomp)
+library(tidyr)
+
+# phyloseq
+library(phyloseq)
+library(speedyseq) # for faster processing of phyloseq codes
+library(tidyverse)
+library(Biostrings)
+
+# Plots
+library(ggplot2)
+library(ggrepel) # avoid overlap of text in graphs
+
+# data
+library(vegan)
+library(limma)
+library(emmeans)
+```
+
+# DATA STEP
+
+## Loading data
+
+Load the metadata file and count table. 
+
+- *df* stands for dataframe
+
+```{r}
+# Read in files
+df_metadata <- read.csv("raw_data/Metadata_RUN4_NXTGNT_2.csv", sep = ";", header = TRUE)
+df_counts <- read.csv("raw_data/run4_pool1_7_counttable.csv", sep = ";", header = TRUE)
+```
+
+As this is a large object, the environment has also been saved and can be reloaded to work from. 
+```{r}
+save.image(file = "metadata_counts_micos.Rdata")
+load("metadata_counts_micos.Rdata")
+```
+
++ Specs:
+
+  + Within the metadata there are 1258 samples
+  + Within the countTable there are 1271 samples
+  
+  Probably negative controls were added and not yet in the metadata. 
+  
+  + After some checking between the counttables and metadata, all samples were retrieved and correctly added to the metadata.
+
+
+## Cleaning data
+
+Within this step, the following scripts are conducted:
+
++ Remove unwanted ASVs related to mitochondria and chloroplasts
++ Evaluate if all soil samples of Micos are present in the counttable. This check is added, as there was an overwriting of samples during the processing on the HPC. 
+
+
+### Remove unwanted ASVs
+```{r}
+# Clean-up data by removing unwanted sequences
+df_counts <- df_counts[!df_counts$Family %in% "Mitochondria",] #234474
+df_counts <- df_counts[!df_counts$Order %in% "Chloroplast",] #233505
+df_counts <- df_counts[!df_counts$Order %in% "Rickettsiales",] #232325
+df_counts <- df_counts[!df_counts$Kingdom %in% "Eukaryota",] #252135
+```
+
+# PHYLOSEQ 
+
+Remarks:
+
+  + Some negative controls, or extraction controls were not labelled correctly. SOLVED
+  + Some samples were added double, but no differeniating between samples names (aka in which pool they were added) was done. Therefore the whole HPC scripts needed to be rerun. 
+  
+  + **Solution: always use unique names, also for NC**
+
+
+## Create phyloseq object
+```{r}
+# Change the rownames of the metadata to the sampleID
+rownames(df_metadata) <- df_metadata$SampleID
+
+# ---- Identify sample vs taxonomy columns automatically ----
+# List of taxonomy column names
+tax_cols <- c("Kingdom","Phylum","Class","Order","Family","Genus","Species")
+
+# Remove non-sample columns (seq, ASV, total, taxonomy columns)
+sample_cols <- setdiff(colnames(df_counts), c("seq","ASV","total", tax_cols)) # In total 1266 samplenames
+
+# ---- Build the objects ----
+# OTU table
+otu_mat <- as.matrix(df_counts[, sample_cols])
+rownames(otu_mat) <- df_counts$ASV
+OTU <- otu_table(otu_mat, taxa_are_rows = TRUE)
+
+# Taxonomy table
+tax_mat <- as.matrix(df_counts[, tax_cols])
+rownames(tax_mat) <- df_counts$ASV
+TAX <- tax_table(tax_mat)
+
+# Metadata
+SAM <- sample_data(df_metadata)
+
+# ---- Build phyloseq object ----
+ps <- phyloseq(OTU, TAX, SAM)
+
+# ---- Subset samples if needed ----
+# e.g., only those with Comparison == "Yes"
+psB <- subset_samples(ps, Responsible %in% c("Micos", "NC"))
+ps_mock <- subset_samples(ps, Responsible == "Shira")
+```
+
+In total, 1266 samples exists in the df_counts. However there are double names. In the metadata 1255 samples exists so there is already a discrepancy
+
+Final 1233 samples in the psB micos and negative controls.
+
+
+## Sample check
+
+```{r include = FALSE}
+## Are the rownames of the metadata the same as counts colnames
+sum(sample_cols %in% rownames(df_metadata))
+
+## Missing samples that are present in the countdata and not in the df_metadata
+missing_samples <- sample_cols[!sample_cols %in% rownames(df_metadata)]
+missing_samples
+
+## Which samples are in the metadata but not in the counttable
+missing_samples <- rownames(df_metadata)[!rownames(df_metadata) %in% sample_cols]
+missing_samples
+
+df_metadata[df_metadata$SampleID %in% missing_samples,]
+```
+
+### Remove empty samples 
+
+Some samples have zero counts and should be removed.
+
+```{r}
+zero_cols <- df_counts %>% 
+  
+  # Only select values that are numeric (eg not sequences)
+  select_if(is.numeric) %>%
+  # Take the sum of each column
+  summarise(across(everything(), ~sum(.x, na.rm = TRUE))) %>%
+  pivot_longer(everything(), names_to = "col", values_to = "sum") %>%
+  filter(sum == 0) %>%
+  pull(col)
+
+zero_cols
+```
+In these samples, no ASVs are retrieved:
+
++ MC24_066_B
++ MC24_068_B
++ MC24_237_G
+
+
+```{r}
+saveRDS(psB, file = "phyloseq_object_bacteria_micos.rds")
+
+# Reload object
+#psB <- readRDS("phyloseq_object_bacteria_micos.rds")
+```
+
+## Remove empty samples
+```{r}
+# Remove samples with 0 reads
+psB <- prune_samples(sample_sums(psB) > 0, psB)
+```
+
+## Technical filtering
+
+
+After filtering of at least 2 counts in three replicates, a total of 75543 taxa are found.
+
+```{r}
+# Technical filtering of the data 
+psB <- speedyseq::filter_taxa(psB, function(x) sum(x) > 0, prune = TRUE) 
+```
+Normally a filtering of at least 2 counts in at least 3 (at random samples) should be applied. 
+```{r}
+# Technical filtering of the data 
+psB <- speedyseq::filter_taxa(psB, function(x) sum(x >= 2) >= 3, TRUE)
+```
+
+```{r}
+# Technical filtering of the data 
+psB_test <- speedyseq::filter_taxa(psB, function(x) sum(x >= 10) >= 3, TRUE)
+```
+
+
+In total:
+
+  + 252135 taxa are found back without filtering
+  + 247312 taxa after removing zero count ASVs
+  + 84046 taxa after removing low abundant (two count, 3 samples)
+  
+
+# DATA EXPLORATION
+
+## Library depth
+
+Make sure that all samples are selected
+
+```{r}
+# Calculate the library depth before subsets are made
+df_libDepth <- data.frame(
+  SampleID = sample_names(psB),
+  Library_depth = sample_sums(psB)
+) %>%
+  dplyr::left_join(
+    data.frame(sample_data(psB)),
+    by = "SampleID"
+  )
+```
+
+```{r}
+#plot
+hist(df_libDepth$Library_depth, breaks = 30,
+     main = "Library Depth Distribution",
+     xlab = "Reads per Sample")
+
+```
+
+### Library depth for each pool
+```{r}
+# Create a ggplot
+ggplot(data = df_libDepth, aes(x = Pool, y = Library_depth)) + 
+  geom_boxplot() +
+  geom_jitter(shape = 8, position = position_jitter(0.2)) +
+  ggtitle("Library depth for each pool")
+```
+
+
+### Library depth of negative controls
+```{r}
+# Create a ggplot
+ggplot(data = df_libDepth %>% filter(Responsible == "NC"), aes(x = Pool, y = Library_depth)) + 
+  geom_point() +
+  geom_jitter(shape = 8, position = position_jitter(0.2)) +
+  
+  # Add labels for points where Shannon < 1, avoiding overlap
+  geom_text_repel(
+    data = subset(df_libDepth %>% filter(Responsible == "NC"), Library_depth > 100),
+    aes(label = Sample_type),
+    size = 3,
+    nudge_x = 0.1,      # optional small horizontal adjustment
+    nudge_y = 0.1,      # optional small vertical adjustment
+    max.overlaps = Inf  # ensures all labels are plotted
+  ) +
+  
+  
+  ggtitle("Library depth for negative controls")
+```
+
+### Library depth for each field
+
+```{r}
+# Create a ggplot
+ggplot(data = df_libDepth, aes(x = Field, y = Library_depth)) + 
+  geom_boxplot() +
+  geom_jitter(shape = 8, position = position_jitter(0.2)) +
+  xlab("") +
+  ggtitle("Library depth for each field")
+```
+
+Investigate samples with a very low library depth:
+
++ What would be a good cut-off for low samples? A few steps:
+
+```{r}
+# Thresholds
+thresholds <- c(1000, 5000, 10000)
+
+# Create a list of SampleIDs below each threshold
+low_depth_samples <- lapply(thresholds, function(t) {
+  df_libDepth %>%
+    filter(Library_depth < t) %>%
+    pull(SampleID)
+})
+
+# Name the list elements for clarity
+names(low_depth_samples) <- paste0("below_", thresholds)
+
+# View
+low_depth_samples$below_1000
+low_depth_samples$below_5000
+low_depth_samples$below_10000
+length(low_depth_samples$below_1000)
+length(low_depth_samples$below_5000)
+length(low_depth_samples$below_10000)
+
+```
+
+```{r}
+# Remove samples with library depth below 1000
+keep_samples <- !(sample_names(psB) %in% low_depth_samples$below_1000)
+length(keep_samples)
+
+# Remove samples with library depth below 1000
+psB_filtered1000 <- prune_samples(keep_samples, psB)
+# Remove samples with library depth below 1000
+psB_filtered1000 <- prune_samples(!(sample_names(psB_filtered1000) %in% low_depth_samples$below_1000), psB_filtered1000)
+
+```
+
+```{r}
+# Remove samples with library depth below 1000
+keep_samples <- !(sample_names(psB) %in% low_depth_samples$below_5000)
+
+# Remove samples with library depth below 1000
+psB_filtered5000 <- prune_samples(keep_samples, psB)
+# Remove samples with library depth below 1000
+psB_filtered5000 <- prune_samples(!(sample_names(psB_filtered5000) %in% low_depth_samples$below_5000), psB_filtered5000)
+
+```
+
+```{r}
+# Remove samples with library depth below 1000
+keep_samples <- !(sample_names(psB) %in% low_depth_samples$below_10000)
+
+# Remove samples with library depth below 1000
+psB_filtered10000 <- prune_samples(keep_samples, psB)
+# Remove samples with library depth below 1000
+psB_filtered10000 <- prune_samples(!(sample_names(psB_filtered10000) %in% low_depth_samples$below_5000), psB_filtered10000)
+
+```
+
+# DIVERSITY
+
+## Without filtering
+```{r}
+# Calculate diversity, richness and eveness
+## PacBio
+df_div <- data.frame(
+  Richness = specnumber(otu_table(t(psB))),
+  Shannon = diversity(otu_table(t(psB)), index = "shannon")) %>% 
+  cbind( sample_data(psB)) %>%
+  mutate(Evenness = Shannon / log(Richness))
+
+```
+
+```{r}
+# Create a boxplot for the diversity
+## Only on part Preincubation
+ggplot(df_div, 
+       aes(x = Pool, y = Shannon)) +
+   geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.colour = "red", outlier.alpha = 1) + 
+   geom_jitter(width = 0.15) +
+  ylim(c(-1,10)) +
+  # Set lay out of the graph
+ 
+  ggtitle("Bacterial shannon diversity without filtering") 
+```
+
+## Removal below 1000
+```{r}
+# Calculate diversity, richness and eveness
+## PacBio
+df_div_filtered1000 <- data.frame(
+  Richness = specnumber(otu_table(t(psB_filtered1000))),
+  Shannon = diversity(otu_table(t(psB_filtered1000)), index = "shannon")) %>% 
+  cbind( sample_data(psB_filtered1000)) %>%
+  mutate(Evenness = Shannon / log(Richness))
+
+```
+
+```{r}
+# Create a boxplot for the diversity
+## Only on part Preincubation
+ggplot(df_div_filtered1000, 
+       aes(x = Pool, y = Shannon)) +
+   geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.colour = "red", outlier.alpha = 1) + 
+   geom_jitter(width = 0.15) +
+
+  # Set lay out of the graph
+  ylim(c(0,10)) +
+  ggtitle("Bacterial shannon diversity with removal < 1000 reads") 
+```
+
+## Removal below 5000
+```{r}
+# Calculate diversity, richness and eveness
+## PacBio
+df_div_filtered5000 <- data.frame(
+  Richness = specnumber(otu_table(t(psB_filtered5000))),
+  Shannon = diversity(otu_table(t(psB_filtered5000)), index = "shannon")) %>% 
+  cbind( sample_data(psB_filtered5000)) %>%
+  mutate(Evenness = Shannon / log(Richness))
+
+```
+
+```{r}
+# Create a boxplot for the diversity
+## Only on part Preincubation
+ggplot(df_div_filtered5000, 
+       aes(x = Pool, y = Shannon)) +
+   geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.colour = "red", outlier.alpha = 1) + 
+   geom_jitter(width = 0.15) +
+
+  # Set lay out of the graph
+  ylim(c(0,10)) +
+  ggtitle("Bacterial shannon diversity with removal < 5000 reads") 
+```
+After filtering out samples below 5.000, the question is which samples are still left with a diversity below 2.5?
+
+```{r}
+names <- df_div_filtered5000$SampleID[df_div_filtered5000$Shannon < 4]
+names
+```
+
+```{r}
+# Get the SampleIDs with Shannon < 5
+names <- df_div_filtered5000$SampleID[df_div_filtered5000$Shannon < 4]
+
+# Subset library depth data and join Shannon
+output_table <- df_libDepth %>%
+  dplyr::filter(SampleID %in% names) %>%
+  dplyr::select(SampleID, Library_depth, Pool) %>%
+  dplyr::left_join(
+    dplyr::select(df_div_filtered5000, SampleID, Shannon, Richness, Evenness),
+    by = "SampleID"
+  )
+
+# View table
+output_table
+
+```
+
+From this table, only sample MC24_204 has a really low libary depth (6873). The others still do look good.
+
+- Most of the samples do have a very low richness and with a consequence also a low evenness and are thus uneven.
+
+Conclusion:
+
+- At the moment the samples will be included, but might be discarded if also other parameters look wonky
+
+
+### Diversity technical replicates
+
+
+```{r}
+# Create a boxplot for the diversity
+## Only on part Preincubation
+ggplot(df_div_filtered5000, 
+       aes(x = Field, y = Shannon, colour = Field)) +
+   geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.colour = "black", outlier.alpha = 1) + 
+   geom_jitter(width = 0.15) +
+  theme(legend.position = "none") +
+
+  # Set lay out of the graph
+  # ylim(c(0,10)) +
+  ggtitle("Bacterial shannon diversity with removal < 5000 reads") 
+```
+There are certainly a few fields for where the diversiy is quite spreadout. 
+
+### Large difference technical replicates
+```{r}
+# Calculate min, max, and range of diversity per Field
+field_variation <- df_div_filtered5000 %>%
+  group_by(Field) %>%         # <-- replace Field with your grouping variable
+  summarise(
+    min_Shannon = min(Shannon),
+    max_Shannon = max(Shannon),
+    range_Shannon = max_Shannon - min_Shannon
+  )
+
+# Filter fields where the difference is > 2
+fields_high_variation <- field_variation %>%
+  filter(range_Shannon > 2)
+
+fields_high_variation
+
+```
+
+
+```{r}
+fields_high_variation <- field_variation %>%
+  filter(range_Shannon > 2)
+
+df_div_plot <- df_div_filtered5000 %>%
+  mutate(
+    High_variation = ifelse(Field %in% fields_high_variation$Field,
+                            "High variation (>2)", 
+                            "Normal variation")
+  )
+
+ggplot(df_div_plot, 
+       aes(x = Field, y = Shannon, colour = High_variation)) +
+   geom_boxplot(alpha = 0.5,
+                outlier.shape = 16,
+                outlier.colour = "black",
+                outlier.alpha = 1) + 
+   geom_jitter(width = 0.15) +
+   theme(legend.position = "none") + 
+   ggtitle("Bacterial Shannon diversity with removal < 5000 reads")
+```
+```{r}
+df_highVar <- df_div_filtered5000 %>%
+  filter(Field %in% fields_high_variation$Field)
+
+
+ggplot(df_highVar, 
+       aes(x = Field, y = Shannon, colour = Field)) +
+   geom_point() +
+   theme(legend.position = "none") +
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+   labs(
+     y = "Shannon diversity",
+     title = "Fields with >2 difference in Shannon diversity (replicates)"
+   )
+```
+
+#### Removal below 10.000
+```{r}
+# Calculate diversity, richness and eveness
+## PacBio
+df_div_filtered10000 <- data.frame(
+  Richness = specnumber(otu_table(t(psB_filtered10000))),
+  Shannon = diversity(otu_table(t(psB_filtered10000)), index = "shannon")) %>% 
+  cbind( sample_data(psB_filtered10000)) %>%
+  mutate(Evenness = Shannon / log(Richness))
+
+```
+
+
+```{r}
+# Create a boxplot for the diversity
+## Only on part Preincubation
+ggplot(df_div_filtered10000, 
+       aes(x = Pool, y = Shannon)) +
+   geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.colour = "red", outlier.alpha = 1) + 
+   geom_jitter(width = 0.15) +
+
+  # Set lay out of the graph
+  ylim(c(0,10)) +
+  ggtitle("Bacterial shannon diversity with removal < 10,000 reads") 
+```
+
+# UMAP as alternative for pcoa???
+
+
+# PCoA
+
+## permanova
+
+
+```{r}
+# Make relative
+psB_filtered5000_rel <- transform_sample_counts(psB_filtered5000, function(x) x / sum(x))
+
+```
+
+
+
+
+
+## PcoA all
+
+
+```{r eval = FALSE}
+
+# Calculate ordination
+pcoa.ord_all <- ordinate(psB_filtered5000_rel, method = "PCoA", distance = "bray")
+
+# Plot ordination
+p <- plot_ordination(psB_filtered5000_rel, 
+                     pcoa.ord, 
+                     color = "Field") +
+  
+  geom_point(size = 2) + 
+  
+  stat_ellipse(aes(group = Field), alpha = 0.4) +
+  
+  # Set theme
+  
+  theme(axis.text = element_text(size = 10),
+         axis.title = element_text(size = 12)) 
+  
+# Remove layer of plot_ordination 
+p$layers <- p$layers[-1]
+p
+
+# Save plot
+# ggsave("Output/Bacteria/Bacteria_Preincubation_PcoA_ASV.png", width = 4.5, height = 3)
+```
+
+#### Technical replicates set 1
+```{r}
+# Selecta  few random fields
+my_colors <- c(
+  "MC24_015" = "#F8766D",
+  "MC24_045" = "#7CAE00",
+  "MC24_052" = "#00BFC4",
+  "MC24_093" = "#C77CFF",
+  "MC24_094" = "#00A9FF",
+  "MC24_150" = "#FF61CC"
+)
+
+
+```
+
+```{r}
+
+# Fields you want to emphasize (the ones you gave colors for)
+sel_fields <- names(my_colors)
+
+# Plot
+p <- plot_ordination(psB_filtered5000_rel, pcoa.ord, color = "Field") +
+  # Map color to Field and size to an indicator of selected fields
+  geom_point(aes(color = Field, size = Field %in% sel_fields), alpha = 0.9) +
+  theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  ) +
+  
+  # Colored fields get your palette; others become grey
+  scale_colour_manual(values = my_colors, na.value = "grey60") +
+  # Make selected fields larger, others smaller; hide size legend
+  scale_size_manual(values = c(`FALSE` = 1.5, `TRUE` = 5), guide = "none")
+
+# Remove the default point layer added by plot_ordination
+p$layers <- p$layers[-1]
+
+p
+```
+
+#### sets
+
+```{r plot technical replicates}
+plot_technical_rep <- function(my_colors) {
+# Fields you want to emphasize (the ones you gave colors for)
+sel_fields <- names(my_colors)
+
+# Plot
+p <- plot_ordination(psB_filtered5000_rel, pcoa.ord, color = "Field") +
+  # Map color to Field and size to an indicator of selected fields
+  geom_point(aes(color = Field, size = Field %in% sel_fields), alpha = 0.9) +
+  theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  ) +
+  
+
+
+ geom_text_repel(
+  data = subset(p$data, Field %in% sel_fields),             # only selected
+  aes(label = paste0(DNAextraction, "|", gsub("POOL", "", Pool))),
+  size = 5, fontface = 'bold') + 
+
+
+  # Colored fields get your palette; others become grey
+  scale_colour_manual(values = my_colors, na.value = "grey60") +
+  # Make selected fields larger, others smaller; hide size legend
+  scale_size_manual(values = c(`FALSE` = 1.5, `TRUE` = 5), guide = "none")
+
+# Remove the default point layer added by plot_ordination
+p$layers <- p$layers[-1]
+
+p }
+```
+
+
+```{r}
+my_colors <- c(
+  "MC24_015" = "#F8766D",
+  "MC24_045" = "#7CAE00",
+  "MC24_052" = "#00BFC4",
+  "MC24_093" = "#C77CFF",
+  "MC24_094" = "#00A9FF"
+)
+
+
+my_colors_set1 <- c(
+  "MC24_018" = "#F8766D",
+  "MC24_033" = "#7CAE00",
+  "MC24_067" = "#00BFC4",
+  "MC24_102" = "#C77CFF",
+  "MC24_128" = "#00A9FF",
+  "MC24_221" = "#FF61CC"
+)
+
+
+my_colors_set2 <- c(
+  "MC24_009" = "#F8766D",
+  "MC24_041" = "#7CAE00",
+  "MC24_076" = "#00BFC4",
+  "MC24_119" = "#C77CFF",
+  "MC24_144" = "#00A9FF",
+  "MC24_238" = "#FF61CC")
+
+  
+
+my_colors_set3 <- c(
+  "MC24_012" = "#F8766D",
+  "MC24_058" = "#7CAE00",
+  "MC24_085" = "#00BFC4",
+  "MC24_111" = "#C77CFF",
+  "MC24_173" = "#00A9FF",
+  "MC24_199" = "#FF61CC"
+)
+
+
+my_colors_set4 <- c(
+  "MC24_024" = "#F8766D",
+  "MC24_062" = "#7CAE00",
+  "MC24_097" = "#00BFC4",
+  "MC24_135" = "#C77CFF",
+  "MC24_180" = "#00A9FF",
+  "MC24_241" = "#FF61CC"
+)
+
+
+
+my_colors_set5 <- c(
+  "MC24_005" = "#F8766D",
+  "MC24_049" = "#7CAE00",
+  "MC24_088" = "#00BFC4",
+  "MC24_123" = "#C77CFF",
+  "MC24_166" = "#00A9FF",
+  "MC24_210" = "#FF61CC")
+
+```
+
+
+
+
+```{r}
+plot_technical_rep(my_colors)
+plot_technical_rep(my_colors_set1)
+plot_technical_rep(my_colors_set2)
+plot_technical_rep(my_colors_set3)
+plot_technical_rep(my_colors_set4)
+plot_technical_rep(my_colors_set5)
+
+```
+
+
+
+
+#### Ellipses? 
+
+
+```{r}
+
+# Extract the data created by plot_ordination
+df <- p$data  # same data used in the plot
+
+p + 
+  stat_ellipse(
+    data = subset(df, Field %in% sel_fields),
+    aes(color = Field),
+    type = "t",       # robust ellipse; use "norm" or "euclid" if preferred
+    level = 0.95,
+    linewidth = 0.8
+  )
+
+```
+
+#### Primers
+```{r}
+# Plot
+p <- plot_ordination(psB_filtered5000_rel, pcoa.ord, color = "primers") +
+  geom_point(size = 2) +
+  # stat_ellipse(aes(group = Field), alpha = 0.4) +
+   theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+# Remove the default point layer
+p$layers <- p$layers[-1]
+
+p
+
+ggsave("output/pcoaall_primers.png", p)
+```
+
+#### Pool
+```{r}
+# Plot
+p <- plot_ordination(psB_filtered5000_rel, pcoa.ord, color = "Pool") +
+  geom_point(size = 2) +
+  # stat_ellipse(aes(group = Field), alpha = 0.4) +
+   theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+# Remove the default point layer
+p$layers <- p$layers[-1]
+
+p
+
+ggsave("output/pcoaall_pool.png", p)
+```
+
+#### Soil texture
+```{r}
+# Plot
+p <- plot_ordination(psB_filtered5000_rel, pcoa.ord, color = "Soil") +
+  geom_point(size = 2) +
+  # stat_ellipse(aes(group = Field), alpha = 0.4) +
+   theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+# Remove the default point layer
+p$layers <- p$layers[-1]
+
+p
+
+ggsave("output/pcoaall_soiltexture.png", p)
+```
+
+#### Soil texture
+```{r}
+# Plot
+p <- plot_ordination(psB_filtered5000_rel, pcoa.ord, color = "DNAextraction") +
+  geom_point(size = 2) +
+  # stat_ellipse(aes(group = Field), alpha = 0.4) +
+   theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+# Remove the default point layer
+p$layers <- p$layers[-1]
+
+p
+
+ggsave("output/pcoaall_dnaextraction.png", p, width = 7, height = 4)
+```
+
+### Visualize the distances
+```{r eval = FALSE}
+
+distmat <- vegdist(t(otu_table(psB_filtered5000_rel)), method = "bray")
+
+# Build within-field distances   
+df_dist <- expand.grid(row = rownames(distmat), col = colnames(distmat)) %>%
+  filter(row < col) %>%
+  mutate(
+    dist = distmat[cbind(row, col)],
+    same_field = sample_data(ps_filtered)$Field[row] ==
+                 sample_data(ps_filtered)$Field[col]
+  )
+
+ggplot(df_dist, aes(x = same_field, y = dist)) +
+  geom_boxplot() +
+  labs(x = "Within same field?", y = "Bray–Curtis distance")
+```
+
+###nmds
+
+```{r eval = FALSE}
+otu <- t(otu_table(ps_filtered))
+
+nmds <- metaMDS(otu, distance = "bray", k = 2, trymax = 40)
+
+scores <- as.data.frame(scores(nmds))
+scores$Field <- sample_data(ps_filtered)$Field
+```
+
+```{r  eval = FALSE}
+ggplot(scores, aes(NMDS1, NMDS2, color = Field)) +
+  geom_point() +
+  theme(legend.position = "none") +
+  ggtitle("NMDS (Bray–Curtis)")
+```
+
+
+# BARPLOT
+
+## Negative controls
+
+##
+
+
+
+Logic order
+
+- Step 1: Treatment filtering (in our case on pool level) using subset_samples
+- Step 2: tax_glom on the level you want
+- Step 3: create relative abundances
+
+```{r}
+B_phylum_rel <- psB %>% 
+ # subset_samples(Pool  c("control", "cancer")) %>% 
+  tax_glom("Phylum") %>% 
+           transform_sample_counts(function(x){100*x/sum(x)}) %>%
+  psmelt()
+otu_table(psB)
+
+sum(colSums(otu_table(psB)) == 0)
+
+otu_table(psB)
+```
+There are 17 empty samples. There are zeroes present in the data for certain ASVs in certain samples. 
+
+### Phylum level
+
+```{r}
+# Agglomerate on phylum level
+psB_phylum <- tax_glom(psB, taxrank = "Phylum")
+
+# Make the samples relative
+psB_phylum_rel <- transform_sample_counts(psB_phylum, function(asv) asv/sum(asv))
+otu_table(psB_phylum_rel)
+# Melt the dataset
+B_phylum_rel <- phyloseq::psmelt(psB_phylum_rel)
+```
+On phylum level, in total 64 phyla are found back.
+
+#### Pool
+
+```{r}
+# Order the phylum based on abundance for ggplot
+## Summarize the data to calculate total abundance within each Timepoint and Phylum
+ps_summary <- B_phylum_rel %>%
+  group_by(Phylum, Pool) %>%
+  summarise(Abundance = mean(Abundance)) %>%
+  ungroup() %>%
+  arrange((Abundance))
+```
+
+```{r fig.width = 10, fig.height = 6}
+ggplot(ps_summary, aes(x = Pool, y = Abundance, fill = Phylum)) + 
+  geom_bar(stat = "identity", position = "stack") +
+  
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+   scale_y_continuous(labels = scales::percent_format()) +
+  
+  labs(y = "Relative abundance") 
+```
+
+
